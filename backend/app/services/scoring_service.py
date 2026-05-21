@@ -5,7 +5,7 @@ from .ai_service import analyze_job_description
 def score_resume(resume: dict, raw_text: str, job_description: str) -> dict:
     analysis = analyze_job_description(job_description)
     keywords = analysis["keywords"]
-    resume_text = " ".join([raw_text, str(resume)]).lower()
+    resume_text = _resume_content_text(resume)
     matched = [word for word in keywords if word.lower() in resume_text]
     missing = [word for word in keywords if word.lower() not in resume_text]
     keyword_score = _percent(len(matched), max(len(keywords), 1))
@@ -47,6 +47,24 @@ def _clamp(value: int) -> int:
 def _skills_count(resume: dict) -> int:
     skills = resume.get("skills", {})
     return sum(len(values) for values in skills.values() if isinstance(values, list))
+
+
+def _resume_content_text(resume: dict) -> str:
+    parts = [resume.get("target_title", ""), resume.get("summary", "")]
+    skills = resume.get("skills", {})
+    for values in skills.values():
+        if isinstance(values, list):
+            parts.extend(values)
+    for job in resume.get("experience", []):
+        parts.extend([job.get("title", ""), job.get("company", ""), job.get("location", "")])
+        parts.extend(job.get("bullets", []))
+    for project in resume.get("projects", []):
+        parts.extend([project.get("name", ""), project.get("url", "")])
+        parts.extend(project.get("technologies", []))
+        parts.extend(project.get("bullets", []))
+    parts.extend(resume.get("education", []))
+    parts.extend(resume.get("certifications", []))
+    return " ".join(str(part) for part in parts if part).lower()
 
 
 def _experience_score(resume: dict) -> int:
