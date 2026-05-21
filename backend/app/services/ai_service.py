@@ -155,6 +155,7 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     if should_target:
         _mark_generated_targeted_resume(optimized, job_description or "")
     optimized["suggested_projects"] = _suggest_projects_for_gap(jd_keywords, optimized)
+    optimized["projects"] = _add_relevant_projects(optimized.get("projects", []), optimized["suggested_projects"])
     optimized["summary"] = _remove_ai_tone(optimized["summary"])
     return optimized, "Improved summary, experience, and project bullets with recruiter-style language, verified skills, clearer impact, and ATS alignment without adding fake claims."
 
@@ -840,6 +841,45 @@ def _suggest_projects_for_gap(jd_keywords: list[str], resume: dict) -> list[dict
             ]
         })
     return suggestions[:5]
+
+
+def _add_relevant_projects(existing: list[dict], suggestions: list[dict]) -> list[dict]:
+    projects = [project for project in existing or [] if project.get("name") or project.get("bullets")]
+    seen = {_keyword_key(project.get("name", "")) for project in projects}
+    for suggestion in suggestions:
+        key = _keyword_key(suggestion.get("name", ""))
+        if key and key not in seen:
+            projects.append(_resume_ready_project(suggestion))
+            seen.add(key)
+        if len(projects) >= 5:
+            break
+    return projects
+
+
+def _resume_ready_project(project: dict) -> dict:
+    return {
+        "name": project.get("name", "Relevant Technical Project"),
+        "technologies": project.get("technologies", []),
+        "bullets": [_project_bullet_to_resume_style(bullet) for bullet in project.get("bullets", [])[:3]],
+    }
+
+
+def _project_bullet_to_resume_style(bullet: str) -> str:
+    text = bullet.strip().rstrip(".")
+    replacements = {
+        r"(?i)^build\s+": "Built ",
+        r"(?i)^create\s+": "Created ",
+        r"(?i)^containerize\s+": "Containerized ",
+        r"(?i)^add\s+": "Added ",
+        r"(?i)^document\s+": "Documented ",
+        r"(?i)^expose\s+": "Exposed ",
+        r"(?i)^show\s+": "Showed ",
+    }
+    for pattern, replacement in replacements.items():
+        text = re.sub(pattern, replacement, text)
+    if not _starts_with_action(text):
+        text = f"Built {text[0].lower() + text[1:]}" if text else "Built a role-relevant technical project"
+    return _restore_acronyms(text) + "."
 
 
 def _remove_ai_tone(text: str) -> str:

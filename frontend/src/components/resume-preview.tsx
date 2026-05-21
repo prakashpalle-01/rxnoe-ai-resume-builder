@@ -38,18 +38,20 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
           </div>
         ))}
       </ResumeSection>
-      <ResumeSection title="Projects">
-        {resume.projects.map((project, index) => (
-          <div key={`${project.name}-${index}`} className="mb-3">
-            <strong>{project.name || "Project"}</strong>
-            {project.technologies.length > 0 && <span className="text-xs text-slate-600"> | {highlightKeywords(project.technologies.join(", "), resume.target_keywords)}</span>}
-            {project.url && <span className="text-xs text-slate-600"> | {project.url}</span>}
-            <ul className="mt-1 list-disc pl-5">
-              {project.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{highlightKeywords(bullet, resume.target_keywords)}</li>)}
-            </ul>
-          </div>
-        ))}
-      </ResumeSection>
+      {resume.projects.length > 0 && (
+        <ResumeSection title="Projects">
+          {resume.projects.map((project, index) => (
+            <div key={`${project.name}-${index}`} className="mb-3 break-inside-avoid">
+              <strong>{project.name || "Project"}</strong>
+              {project.technologies.length > 0 && <span className="text-xs text-slate-600"> | {highlightKeywords(project.technologies.join(", "), resume.target_keywords)}</span>}
+              {project.url && <span className="text-xs text-slate-600"> | {project.url}</span>}
+              <ul className="mt-1 list-disc pl-5">
+                {project.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{highlightKeywords(bullet, resume.target_keywords)}</li>)}
+              </ul>
+            </div>
+          ))}
+        </ResumeSection>
+      )}
       {resume.education.length > 0 && <ResumeSection title="Education"><p>{resume.education.join(" | ")}</p></ResumeSection>}
       {resume.certifications.length > 0 && <ResumeSection title="Certifications"><p>{resume.certifications.join(" | ")}</p></ResumeSection>}
     </article>
