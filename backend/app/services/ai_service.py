@@ -226,7 +226,7 @@ def extract_keywords(text: str) -> list[str]:
 def _extract_job_title(text: str) -> str:
     explicit = re.search(r"(?im)^\s*(job title|title|role)\s*[:\-]\s*([A-Za-z0-9/ &.+#-]{3,80})", text)
     if explicit:
-        return _format_title(explicit.group(2))
+        return _format_title(re.split(r"\.|\n|required|preferred|responsibilities", explicit.group(2), flags=re.I)[0])
     title_match = re.search(
         r"(?i)(genai engineer|generative ai engineer|machine learning engineer|ml engineer|ai engineer|data engineer|data analyst|software engineer|software developer|product engineer|devops engineer|cloud engineer|business analyst|java developer|python developer|react developer|full stack developer|full stack engineer|backend developer|backend engineer|frontend developer|frontend engineer)",
         text,
@@ -632,13 +632,13 @@ def _categorize_skills(skills: list[str], jd_keywords: Optional[list[str]] = Non
 
 def _summary(resume: dict, ranked_skills: list[str], target_title: str = "") -> str:
     title = target_title or (resume.get("experience", [{}])[0].get("title", "professional") if resume.get("experience") else "professional")
-    years = _years_experience(resume)
+    years_label = _experience_label(resume)
     skills = ", ".join(_dedupe_related_keywords(ranked_skills)[:6])
     domain = _target_domain(target_title) or _resume_domain(resume)
-    years_text = f" with {years}+ years of experience" if years else " with experience"
+    years_text = f" with {years_label} of experience" if years_label else " with experience"
     skill_text = f" using {skills}" if skills else ""
     domain_text = f" in {domain}" if domain else ""
-    return f"{title}{years_text}{domain_text}{skill_text}. Experienced in building practical systems, APIs, automation workflows, and data-driven features that improve reliability, delivery quality, and business operations."
+    return f"{title}{years_text}{domain_text}{skill_text}. Builds scalable products, APIs, automation workflows, and data-driven features that improve reliability, delivery quality, and operational efficiency. Strong at turning business requirements into clear, maintainable, recruiter-readable technical impact."
 
 
 def _target_domain(target_title: str) -> str:
@@ -690,6 +690,16 @@ def _years_experience(resume: dict) -> int:
             if end_year >= start_year:
                 years.append(end_year - start_year)
     return sum(years)
+
+
+def _experience_label(resume: dict) -> str:
+    summary = resume.get("summary", "")
+    explicit = re.search(r"\b(\d+\+?\s*years?)\b", summary, re.I)
+    if explicit:
+        value = re.search(r"\d+\+?", explicit.group(1))
+        return f"{value.group(0)} years" if value else explicit.group(1)
+    years = _years_experience(resume)
+    return f"{years}+ years" if years else ""
 
 
 def _resume_domain(resume: dict) -> str:
