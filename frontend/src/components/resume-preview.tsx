@@ -33,7 +33,7 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
               <span className="text-xs text-slate-600">{[job.start_date, job.end_date].filter(Boolean).join(" - ")}</span>
             </div>
             <ul className="mt-1 list-disc pl-5">
-              {job.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{highlightKeywords(bullet, resume.target_keywords)}</li>)}
+              {job.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{highlightBullet(bullet, resume.target_keywords)}</li>)}
             </ul>
           </div>
         ))}
@@ -43,10 +43,10 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
           {resume.projects.map((project, index) => (
             <div key={`${project.name}-${index}`} className="mb-3 break-inside-avoid">
               <strong>{project.name || "Project"}</strong>
-              {project.technologies.length > 0 && <span className="text-xs text-slate-600"> | {highlightKeywords(project.technologies.join(", "), resume.target_keywords)}</span>}
+              {project.technologies.length > 0 && <span className="text-xs text-slate-600"> | {project.technologies.join(", ")}</span>}
               {project.url && <span className="text-xs text-slate-600"> | {project.url}</span>}
               <ul className="mt-1 list-disc pl-5">
-                {project.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{highlightKeywords(bullet, resume.target_keywords)}</li>)}
+                {project.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{bullet}</li>)}
               </ul>
             </div>
           ))}
@@ -113,15 +113,27 @@ function orderedSkillEntries(skills: ResumeJson["skills"]) {
     .filter(([, values]) => values.length > 0);
 }
 
-function highlightKeywords(text: string, keywords: string[] = []) {
-  const important = keywordHighlights(keywords);
-  if (!important.length) return text;
-  const pattern = new RegExp(`(^|[^A-Za-z0-9+#./-])(${important.map(escapeRegExp).join("|")})(?=$|[^A-Za-z0-9+#./-])`, "gi");
-  return text.split(pattern).map((part, index) =>
-    important.some((keyword) => keyword.toLowerCase() === part.toLowerCase())
-      ? <strong key={`${part}-${index}`}>{part}</strong>
-      : part
+function highlightBullet(text: string, keywords: string[] = []) {
+  const metric = text.match(/\b(?:reduced|improved|increased|cut|shortened|accelerated|processed|saved|lowered|raised)[^.;,]*?\b\d+%|\b\d+[%x]\b/iu)?.[0];
+  const phrase = metric || firstKeywordMatch(text, keywords);
+  if (!phrase) return text;
+  const index = text.toLowerCase().indexOf(phrase.toLowerCase());
+  if (index < 0) return text;
+  return (
+    <>
+      {text.slice(0, index)}
+      <strong>{text.slice(index, index + phrase.length)}</strong>
+      {text.slice(index + phrase.length)}
+    </>
   );
+}
+
+function firstKeywordMatch(text: string, keywords: string[] = []) {
+  const important = keywordHighlights(keywords).slice(0, 24);
+  return important.find((keyword) => {
+    const pattern = new RegExp(`(^|[^A-Za-z0-9+#./-])${escapeRegExp(keyword)}(?=$|[^A-Za-z0-9+#./-])`, "i");
+    return pattern.test(text);
+  }) || "";
 }
 
 function keywordHighlights(keywords: string[] = []) {

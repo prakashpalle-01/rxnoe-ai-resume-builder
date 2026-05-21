@@ -1061,7 +1061,7 @@ def _job_alignment_context(job_analysis: dict, index: int = 0) -> str:
 def _role_impact_phrase(job_analysis: dict, index: int = 0) -> str:
     family = _role_family(job_analysis)
     impact = {
-        "solutions_architecture": ["implementation clarity", "stakeholder confidence", "integration planning", "delivery tradeoff visibility"],
+        "solutions_architecture": ["implementation clarity", "technical handoff quality", "integration planning", "delivery tradeoff visibility"],
         "ai_engineering": ["retrieval quality", "automation reliability", "model workflow visibility", "production readiness"],
         "platform_engineering": ["release reliability", "operational visibility", "deployment consistency", "incident response"],
         "product_frontend": ["user flow clarity", "interface reliability", "product delivery speed", "API-backed usability"],
@@ -1081,13 +1081,13 @@ def _translated_role_contexts(job_analysis: dict) -> list[str]:
     ]).lower()
     contexts: list[str] = []
     if _contains_phrase(text, ["solutions architect", "solution architect", "stakeholder", "requirements", "integration"]):
-        contexts.extend(["solution discovery workflows", "system integration planning", "architecture decision records", "stakeholder-facing delivery plans"])
+        contexts.extend(["solution discovery workflows", "system integration planning", "technical implementation plans", "cross-functional delivery planning"])
     if _contains_phrase(text, ["healthcare", "claim", "claims", "reimbursement", "revenue cycle"]):
         contexts.extend(["healthcare operations workflows", "claims review visibility", "reimbursement process quality", "traceable operational decisions"])
     if _contains_phrase(text, ["platform", "sre", "terraform", "kubernetes", "observability", "ci/cd"]):
         contexts.extend(["developer platform services", "release automation", "Kubernetes workload reliability", "observability and incident response"])
     if _contains_phrase(text, ["analytics", "dashboard", "bi", "reporting", "kpi"]):
-        contexts.extend(["KPI reporting workflows", "data quality review", "stakeholder dashboard visibility", "analytics decision support"])
+        contexts.extend(["KPI reporting workflows", "data quality review", "operational dashboard visibility", "analytics decision support"])
     if _contains_phrase(text, ["ai", "ml", "llm", "rag", "model"]):
         contexts.extend(["AI workflow delivery", "retrieval quality review", "model-backed automation", "production AI operations"])
     if _contains_phrase(text, ["frontend", "react", "component", "ui"]):
@@ -1115,7 +1115,7 @@ def _duty_fragments(job_analysis: dict) -> list[str]:
     if _contains_phrase(lower, ["platform", "sre", "terraform", "kubernetes", "observability", "ci/cd"]):
         role_contexts.extend(["developer platform services", "CI/CD automation", "Kubernetes workload reliability", "observability and incident response"])
     if _contains_phrase(lower, ["analytics", "dashboard", "bi", "reporting", "kpi"]):
-        role_contexts.extend(["KPI reporting workflows", "data quality review", "stakeholder dashboard visibility", "analytics decision support"])
+        role_contexts.extend(["KPI reporting workflows", "data quality review", "operational dashboard visibility", "analytics decision support"])
     if _contains_phrase(lower, ["ai", "ml", "llm", "rag", "model"]):
         role_contexts.extend(["AI workflow delivery", "model reliability review", "retrieval quality", "production AI operations"])
     if _contains_phrase(lower, ["frontend", "react", "component", "ui"]):
@@ -1300,6 +1300,7 @@ def _restore_acronyms(text: str) -> str:
         "etl": "ETL",
         "llm": "LLM",
         "rag": "RAG",
+        "ai": "AI",
         "ci/cd": "CI/CD",
         "kubernetes": "Kubernetes",
         "docker": "Docker",
@@ -1511,6 +1512,8 @@ def _recruiter_safe_sentence(text: str, job_analysis: dict, index: int) -> str:
     clean = _remove_ai_tone(_clean_generated_sentence(text.rstrip(".")))
     clean = re.sub(r"(?i)^built app\b", "Built role-aligned workflow application", clean)
     clean = re.sub(r"(?i)^built dashboards\b", "Built operational dashboards", clean)
+    clean = re.sub(r"(?i)^built deployments\b", "Managed deployment workflows", clean)
+    clean = _fix_action_collisions(clean)
     clean = re.sub(r"(?i)\busing\s+([A-Za-z0-9+#./ -]+,\s*){2,}[A-Za-z0-9+#./ -]+", "with role-relevant tooling", clean)
     clean = re.sub(r"(?i)\b(millions|thousands|40%|50%|100%)\b", "high-volume" if index % 2 else "measurable", clean)
     copied = _copied_jd_fragments(clean, job_analysis)
@@ -1522,57 +1525,80 @@ def _recruiter_safe_sentence(text: str, job_analysis: dict, index: int) -> str:
     return _restore_acronyms(clean).rstrip(" .") + "."
 
 
+def _fix_action_collisions(text: str) -> str:
+    text = re.sub(r"(?i)^(Architected|Engineered|Designed|Optimized|Automated|Integrated|Delivered|Scaled|Orchestrated|Streamlined)\s+used\s+", r"\1 ", text)
+    text = re.sub(r"(?i)^(Architected|Engineered|Designed|Optimized|Automated|Integrated|Delivered|Scaled|Orchestrated|Streamlined)\s+(collaborated|partnered|worked)\b", lambda m: m.group(2).capitalize(), text)
+    text = re.sub(r"(?i)^(Architected|Engineered|Designed|Optimized|Automated|Integrated|Delivered|Scaled|Orchestrated|Streamlined)\s+(managed|owned|supported|led)\b", lambda m: m.group(2).capitalize(), text)
+    return text
+
+
 def _add_impact_number(text: str, job_analysis: dict, index: int) -> str:
     if re.search(r"\b\d+[%x]?\b|\$|hours?|minutes?|seconds?|days?|weeks?", text, re.I):
         return text
-    metric = _metric_phrase(job_analysis, index)
+    outcome = _impact_outcome_phrase(job_analysis, index)
     base = text.rstrip(" .")
+    if index % 2 == 1:
+        return f"{base}; {_non_numeric_outcome_phrase(job_analysis, index)}"
     if re.search(r"(?i)\b(improving|reducing|accelerating|increasing|supporting|enabling)\b", base):
-        return f"{base}, helping to {metric}"
-    return f"{base}, helping to {metric}"
+        return f"{base}; {outcome}"
+    return f"{base}; {outcome}"
 
 
-def _metric_phrase(job_analysis: dict, index: int) -> str:
+def _impact_outcome_phrase(job_analysis: dict, index: int) -> str:
     family = _role_family(job_analysis)
     metrics = {
         "solutions_architecture": [
-            "reduce implementation ambiguity by 30%",
-            "shorten technical discovery cycles by 25%",
-            "improve stakeholder handoff clarity by 35%",
-            "reduce integration rework by 20%",
+            "reduced implementation ambiguity by 30%",
+            "shortened technical discovery cycles by 25%",
+            "improved handoff clarity by 35%",
+            "reduced integration rework by 20%",
         ],
         "ai_engineering": [
-            "reduce manual review effort by 35%",
-            "improve retrieval review speed by 30%",
+            "reduced manual review effort by 35%",
+            "improved retrieval review speed by 30%",
             "cut repetitive analysis time by 40%",
-            "increase workflow traceability by 25%",
+            "increased workflow traceability by 25%",
         ],
         "platform_engineering": [
-            "reduce deployment friction by 30%",
-            "improve release consistency by 35%",
+            "reduced deployment friction by 30%",
+            "improved release consistency by 35%",
             "cut troubleshooting time by 25%",
-            "increase operational visibility by 40%",
+            "increased operational visibility by 40%",
         ],
         "product_frontend": [
-            "reduce user workflow friction by 25%",
-            "improve task completion speed by 30%",
-            "increase interface consistency by 35%",
+            "reduced user workflow friction by 25%",
+            "improved task completion speed by 30%",
+            "increased interface consistency by 35%",
             "cut API handoff issues by 20%",
         ],
         "analytics": [
-            "reduce manual reporting effort by 40%",
-            "improve data review speed by 30%",
-            "increase KPI visibility by 35%",
+            "reduced manual reporting effort by 40%",
+            "improved data review speed by 30%",
+            "increased KPI visibility by 35%",
             "cut recurring analysis time by 25%",
         ],
         "software_engineering": [
-            "reduce manual support effort by 30%",
-            "improve service reliability by 25%",
+            "reduced manual support effort by 30%",
+            "improved service reliability by 25%",
             "cut operational review time by 35%",
-            "increase delivery visibility by 30%",
+            "increased delivery visibility by 30%",
         ],
     }
     options = metrics.get(family, metrics["software_engineering"])
+    return options[index % len(options)]
+
+
+def _non_numeric_outcome_phrase(job_analysis: dict, index: int) -> str:
+    family = _role_family(job_analysis)
+    outcomes = {
+        "solutions_architecture": ["accelerated requirement validation cycles", "reduced integration friction during release planning", "improved coordination between engineering and operations"],
+        "ai_engineering": ["streamlined AI workflow validation and exception handling", "improved model-output review for operational teams", "strengthened traceability across AI-assisted decisions"],
+        "platform_engineering": ["improved deployment reliability across cloud environments", "centralized monitoring signals for faster debugging", "strengthened release coordination across services"],
+        "product_frontend": ["improved user workflow clarity across API-backed screens", "reduced friction in repeated product tasks", "strengthened component reuse across delivery work"],
+        "analytics": ["improved reporting visibility for recurring decisions", "streamlined operational data review", "reduced ambiguity in KPI definitions"],
+        "software_engineering": ["improved engineering coordination and service ownership", "streamlined operational validation and exception handling", "strengthened reliability across backend workflows"],
+    }
+    options = outcomes.get(family, outcomes["software_engineering"])
     return options[index % len(options)]
 
 
