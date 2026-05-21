@@ -1,0 +1,8 @@
+backend/.venv/
+backend/rxnoe.db
+backend/uploads/*
+!backend/uploads/.gitkeep
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+.env

@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.resume-paper {
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+}
+
+.resume-paper.template-genai {
+  font-size: 12.5px;
+  line-height: 1.42;
+  padding: 34px 42px;
+}
+
+.resume-paper.template-genai h2,
+.resume-paper.template-engineer h2,
+.resume-paper.template-compact h2 {
+  color: #111827;
+  border-bottom-color: #111827;
+}
+
+.resume-paper.template-classic {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 13px;
+}
+
+.resume-paper.template-compact {
+  font-size: 12px;
+  line-height: 1.35;
+  padding: 30px 38px;
+}
+
+.resume-paper.template-executive {
+  font-size: 13.5px;
+  line-height: 1.55;
+  padding: 46px 52px;
+}
+
+.resume-paper.template-engineer {
+  font-size: 12px;
+  line-height: 1.34;
+  padding: 30px 36px;
+}
+
+.resume-paper.template-data {
+  border-top: 6px solid #0891b2;
+}
+
+.resume-paper.template-cloud {
+  border-top: 6px solid #059669;
+}
+
+.resume-paper.template-frontend {
+  border-top: 6px solid #1d4ed8;
+}
+
+.resume-paper.template-minimal {
+  font-size: 14px;
+  line-height: 1.65;
+  padding: 56px;
+}
+
+.resume-paper.template-scan h2 {
+  font-size: 13px;
+  color: #1d4ed8;
+}
