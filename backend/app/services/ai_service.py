@@ -29,6 +29,9 @@ Important rules:
 - If metrics are missing, improve clarity without fabricating numbers.
 - Preserve truth while improving presentation.
 - Use recruiter-style language.
+- Avoid repetitive sentence structure. Do not repeat the same action verb more than twice.
+- Mention technologies only when they directly support the achievement or architecture.
+- Avoid comma-list endings and keyword stuffing.
 - Avoid generic AI buzzwords like leveraged, spearheaded, cutting-edge, dynamic, robust, transformative, seamless, innovative.
 - Keep wording natural and realistic.
 - Make the resume ATS friendly.
@@ -60,6 +63,7 @@ Keep summaries 3-5 lines max with a strong technical identity and no fluff.
 
 Experience bullet formula:
 Action Verb + What Was Built + Technology + Business/Technical Impact.
+Use outcome-driven, problem-focused, engineering-oriented language.
 
 Final rule:
 Do not optimize for looking impressive. Optimize for recruiter trust, ATS readability, interview conversion, technical credibility, and clear impact.
@@ -74,6 +78,12 @@ Keep dates exactly as shown.
 Clean formatting only."""
 
 BAD_AI_WORDS = ["leveraged", "spearheaded", "transformative", "cutting-edge", "dynamic", "robust", "seamless", "innovative"]
+GENERIC_KEYWORDS = {
+    "associate", "stack", "product", "skills", "required", "preferred", "qualification", "qualifications",
+    "requirements", "responsibilities", "development", "software", "systems", "build", "building", "team",
+    "teams", "business", "technical", "technology", "technologies", "platform", "platforms", "solutions",
+    "solution", "engineer", "engineering", "developer", "analyst", "candidate", "role", "work", "working"
+}
 KNOWN_KEYWORDS = [
     "Python", "Java", "JavaScript", "TypeScript", "React", "Node", "FastAPI", "Spring Boot", "SQL",
     "PostgreSQL", "AWS", "Azure", "GCP", "Docker", "Kubernetes", "CI/CD", "Git", "REST", "GraphQL",
@@ -157,6 +167,7 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     optimized["suggested_projects"] = _suggest_projects_for_gap(jd_keywords, optimized)
     optimized["projects"] = _add_relevant_projects(optimized.get("projects", []), optimized["suggested_projects"])
     optimized["summary"] = _remove_ai_tone(optimized["summary"])
+    _humanize_resume(optimized)
     return optimized, "Improved summary, experience, and project bullets with recruiter-style language, verified skills, clearer impact, and ATS alignment without adding fake claims."
 
 
@@ -170,6 +181,9 @@ Rules:
 - Do not invent fake experience, companies, degrees, certifications, tools, or metrics.
 - Add job-description keywords only when they are supported by the candidate resume.
 - Rewrite weak bullets using action + work + technology + business/technical impact.
+- Avoid repetitive action verbs; never repeat the same verb more than twice.
+- Do not keyword-stuff comma-separated technologies into bullet endings.
+- Write problem-focused, architecture-aware bullets with clear outcomes.
 - Keep the resume human, concise, recruiter-readable, and ATS-safe.
 - Use single-column sections: Header, Professional Summary, Technical Skills, Professional Experience, Projects, Education, Certifications.
 - Return only valid JSON matching the resume schema.
@@ -216,11 +230,18 @@ def extract_keywords(text: str) -> list[str]:
             found.append(item)
     words = re.findall(r"\b[A-Za-z][A-Za-z+#.-]{2,}\b", text)
     extras = []
-    stop = {"and", "the", "for", "with", "you", "our", "will", "are", "that", "this", "from", "job", "work", "role", "requiring", "required", "responsibilities", "experience", "engineer", "developer", "analyst"}
+    stop = {"and", "the", "for", "with", "you", "our", "will", "are", "that", "this", "from", "job", "work", "role", "requiring", "required", "responsibilities", "experience", "engineer", "developer", "analyst"} | GENERIC_KEYWORDS
     for word in words:
-        if word.lower() not in stop and len(word) > 4 and word.title() not in found and word.title() not in extras:
+        if word.lower() not in stop and _looks_like_keyword(word) and word.title() not in found and word.title() not in extras:
             extras.append(word.title())
     return (found + extras)[:35]
+
+
+def _looks_like_keyword(word: str) -> bool:
+    lower = word.lower().strip(".")
+    if lower in GENERIC_KEYWORDS or len(lower) <= 4:
+        return False
+    return bool(re.search(r"[A-Z+#./-]", word[1:]) or lower in {"django", "terraform", "qdrant", "neo4j", "snowflake", "langchain", "prometheus", "grafana"})
 
 
 def _extract_job_title(text: str) -> str:
@@ -549,14 +570,37 @@ def _domain(text: str) -> str:
 
 def _all_skills(resume: dict) -> list[str]:
     skills = resume.get("skills", {})
-    return [skill for values in skills.values() if isinstance(values, list) for skill in values]
+    normalized = []
+    for values in skills.values():
+        if not isinstance(values, list):
+            continue
+        for skill in values:
+            normalized.extend(_normalize_skill_items(skill))
+    return _unique([skill for skill in normalized if _valid_skill(skill)])
+
+
+def _normalize_skill_items(value: str) -> list[str]:
+    text = str(value).strip()
+    text = re.sub(r"(?i)^(frontend|backend|cloud\s*&?\s*devops|ai\s*&?\s*automation|tools?|databases?|technical|skills?)\s*:\s*", "", text)
+    parts = re.split(r",|;|\||/|\band\b", text)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _valid_skill(skill: str) -> bool:
+    clean = skill.strip()
+    key = _keyword_key(clean)
+    if not clean or key in GENERIC_KEYWORDS or len(clean) > 35:
+        return False
+    if len(clean.split()) > 4:
+        return False
+    return True
 
 
 def _rank_user_skills(user_skills: list[str], jd_keywords: list[str]) -> list[str]:
     ranked = []
     remaining = []
     jd_lower = {keyword.lower() for keyword in jd_keywords}
-    for skill in _unique(user_skills):
+    for skill in _unique([item for item in user_skills if _valid_skill(item)]):
         if _keyword_key(skill) in {_keyword_key(keyword) for keyword in jd_keywords}:
             ranked.append(skill)
         else:
@@ -602,7 +646,7 @@ def _resume_keyword_text(resume: dict) -> str:
 
 def _categorize_skills(skills: list[str], jd_keywords: Optional[list[str]] = None) -> dict:
     jd_keywords = jd_keywords or []
-    ordered = _rank_user_skills(_dedupe_related_keywords(skills), jd_keywords)
+    ordered = _rank_user_skills(_dedupe_related_keywords([skill for skill in skills if _valid_skill(skill)]), jd_keywords)
     categories = {
         "ai_ml_core": ["LLM", "RAG", "Generative AI", "GenAI", "NLP", "Computer Vision", "AI Agents", "Vector Embeddings", "Recommendation Systems", "Time Series Forecasting", "Machine Learning", "Data Analysis", "A/B Testing"],
         "deep_learning": ["ANN", "CNN", "RNN", "LSTM", "Transformers", "BERT", "GANs"],
@@ -627,18 +671,22 @@ def _categorize_skills(skills: list[str], jd_keywords: Optional[list[str]] = Non
                 break
         if not placed:
             result["technical"].append(skill)
-    return {key: _unique(values)[:18] for key, values in result.items()}
+    return {key: _unique(values)[:12] for key, values in result.items()}
 
 
 def _summary(resume: dict, ranked_skills: list[str], target_title: str = "") -> str:
     title = target_title or (resume.get("experience", [{}])[0].get("title", "professional") if resume.get("experience") else "professional")
     years_label = _experience_label(resume)
-    skills = ", ".join(_dedupe_related_keywords(ranked_skills)[:6])
+    skills = ", ".join(_summary_skills(ranked_skills))
     domain = _target_domain(target_title) or _resume_domain(resume)
     years_text = f" with {years_label} of experience" if years_label else " with experience"
-    skill_text = f" using {skills}" if skills else ""
+    skill_text = f" across {skills}" if skills else ""
     domain_text = f" in {domain}" if domain else ""
     return f"{title}{years_text}{domain_text}{skill_text}. Builds scalable products, APIs, automation workflows, and data-driven features that improve reliability, delivery quality, and operational efficiency. Strong at turning business requirements into clear, maintainable, recruiter-readable technical impact."
+
+
+def _summary_skills(skills: list[str]) -> list[str]:
+    return _dedupe_related_keywords([skill for skill in skills if _valid_skill(skill) and _keyword_key(skill) not in GENERIC_KEYWORDS])[:5]
 
 
 def _target_domain(target_title: str) -> str:
@@ -657,26 +705,79 @@ def _target_domain(target_title: str) -> str:
 
 
 def _rewrite_bullets(bullets: list[str], skills: list[str], target_keywords: Optional[list[str]] = None) -> list[str]:
-    verbs = ["Developed", "Built", "Improved", "Implemented", "Designed", "Automated", "Analyzed", "Delivered"]
+    verbs = ["Architected", "Engineered", "Designed", "Optimized", "Automated", "Integrated", "Delivered", "Scaled", "Orchestrated", "Streamlined"]
     rewritten = []
     target_keywords = target_keywords or []
     for index, bullet in enumerate(bullets):
-        rewritten.append(_add_supported_keyword_context(_rewrite_bullet(bullet, skills, verbs[index % len(verbs)]), target_keywords, index))
-    return rewritten
+        rewritten.append(_rewrite_bullet(bullet, skills, verbs[index % len(verbs)]))
+    return _enforce_verb_variety(rewritten)
 
 
 def _rewrite_bullet(bullet: str, skills: list[str], fallback_verb: str) -> str:
-    clean = _normalize_weak_opening(_remove_ai_tone(bullet.rstrip(".")))
-    tech = next((item for item in skills if item.lower() in clean.lower()), None)
+    clean = _upgrade_action_opening(_normalize_weak_opening(_remove_ai_tone(bullet.rstrip("."))))
+    tech = next((item for item in skills if _valid_skill(item) and item.lower() in clean.lower()), None)
     if len(clean.split()) < 6:
         tool_text = f" using {tech}" if tech and _keyword_key(tech) not in clean.lower() else ""
         if _starts_with_action(clean):
-            clean = f"{_capitalize(clean)}{tool_text} to improve clarity, reliability, or delivery"
+            clean = f"{_capitalize(clean)}{tool_text} to improve reliability, delivery quality, and operational visibility"
         else:
-            clean = f"{fallback_verb} {clean.lower()}{tool_text} to improve clarity, reliability, or delivery"
+            clean = f"{fallback_verb} {clean.lower()}{tool_text} to improve reliability, delivery quality, and operational visibility"
     elif not _starts_with_action(clean):
         clean = f"{fallback_verb} {clean[0].lower() + clean[1:]}"
-    return _restore_acronyms(clean) + "."
+    return _clean_generated_sentence(_restore_acronyms(clean)) + "."
+
+
+def _enforce_verb_variety(bullets: list[str]) -> list[str]:
+    replacements = ["Architected", "Engineered", "Designed", "Optimized", "Automated", "Integrated", "Delivered", "Scaled", "Orchestrated", "Streamlined"]
+    counts: dict[str, int] = {}
+    result = []
+    for bullet in bullets:
+        match = re.match(r"^([A-Za-z]+)\b", bullet)
+        verb = match.group(1) if match else ""
+        if verb:
+            counts[verb.lower()] = counts.get(verb.lower(), 0) + 1
+            if counts[verb.lower()] > 2:
+                replacement = next((item for item in replacements if counts.get(item.lower(), 0) < 2), "Delivered")
+                bullet = re.sub(r"^[A-Za-z]+\b", replacement, bullet, count=1)
+                counts[replacement.lower()] = counts.get(replacement.lower(), 0) + 1
+        result.append(bullet)
+    return result
+
+
+def _clean_generated_sentence(text: str) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"(?i)\bAutomated automation\b", "Automated operational", text)
+    text = re.sub(r"(?i)\bBuilt APIs\b", "Architected APIs", text)
+    text = re.sub(r"\b(using|with emphasis on)\s+([A-Za-z]+,\s*){2,}[A-Za-z]+$", "", text).strip()
+    text = re.sub(r"\b(Associate|Stack|Product|Skills|Build|System)\b,?\s*", "", text).strip()
+    text = _trim_technology_stuffing(text)
+    return text.rstrip(" ,")
+
+
+def _upgrade_action_opening(text: str) -> str:
+    rules = [
+        (r"(?i)^built\s+(automation|automated|pipeline|pipelines)", "Automated"),
+        (r"(?i)^built\s+(scalable|distributed|backend|api-driven|healthcare)", "Engineered"),
+        (r"(?i)^built\s+(responsive|frontend|product|user)", "Designed"),
+        (r"(?i)^developed\s+(scalable|distributed|backend|api-driven|healthcare)", "Engineered"),
+        (r"(?i)^implemented\s+(monitoring|observability|integration|integrations)", "Integrated"),
+        (r"(?i)^improved\s+", "Optimized "),
+    ]
+    for pattern, replacement in rules:
+        if re.search(pattern, text):
+            return re.sub(r"^[A-Za-z]+\b", replacement, text, count=1)
+    return text
+
+
+def _trim_technology_stuffing(text: str) -> str:
+    match = re.search(r"\busing\s+([^.;]+)", text, re.I)
+    if not match:
+        return text
+    techs = [item.strip() for item in match.group(1).split(",") if item.strip()]
+    if len(techs) <= 3:
+        return text
+    keep = ", ".join(techs[:3])
+    return text[:match.start(1)] + keep + text[match.end(1):]
 
 
 def _years_experience(resume: dict) -> int:
@@ -768,7 +869,7 @@ def _mark_generated_targeted_resume(resume: dict, job_description: str) -> None:
 
 
 def _starts_with_action(text: str) -> bool:
-    return bool(re.match(r"(?i)^(built|created|developed|improved|designed|implemented|analyzed|managed|automated|delivered|supported|owned|led)", text))
+    return bool(re.match(r"(?i)^(architected|engineered|built|created|developed|improved|designed|implemented|optimized|integrated|orchestrated|streamlined|scaled|analyzed|managed|automated|delivered|supported|owned|led|reduced)", text))
 
 
 def _capitalize(text: str) -> str:
@@ -807,47 +908,47 @@ def _suggest_projects_for_gap(jd_keywords: list[str], resume: dict) -> list[dict
     suggestions = []
     if any(word in text for word in ["react", "typescript", "frontend"]):
         suggestions.append({
-            "name": "Frontend Job Tracker Dashboard",
+            "name": "AI-Assisted Hiring Intelligence Dashboard",
             "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"react", "typescript", "javascript", "api", "apis"}],
             "bullets": [
-                "Build a responsive dashboard with reusable components, API integration, filtering, loading states, and error handling.",
-                "Document component structure, state management, and accessibility decisions."
+                "Build a responsive hiring intelligence dashboard with reusable React components, API integration, filtering, loading states, and error handling.",
+                "Document component architecture, state management, and accessibility decisions for recruiter-facing workflows."
             ]
         })
     if any(word in text for word in ["aws", "docker", "kubernetes", "cloud", "ci/cd"]):
         suggestions.append({
-            "name": "Cloud Deployment Pipeline",
+            "name": "Enterprise CI/CD Deployment Orchestrator",
             "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"aws", "docker", "kubernetes", "ci/cd"}],
             "bullets": [
-                "Containerize an API and deploy it with environment configuration, health checks, and rollback notes.",
-                "Add CI/CD steps and monitoring documentation to show production readiness."
+                "Containerize backend services and deploy them with environment configuration, health checks, and rollback documentation.",
+                "Add CI/CD workflows and monitoring notes to demonstrate production-ready release operations."
             ]
         })
     if any(word in text for word in ["llm", "rag", "ai", "machine learning"]):
         suggestions.append({
-            "name": "RAG Document Assistant",
+            "name": "Multimodal Healthcare Document Intelligence Engine",
             "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"llm", "rag", "python", "fastapi", "postgresql"}],
             "bullets": [
-                "Build a document question-answering workflow with chunking, retrieval, prompt templates, and response evaluation.",
-                "Expose the workflow through an API and document retrieval quality, latency, and failure cases."
+                "Build a document intelligence workflow with chunking, retrieval, prompt templates, and response evaluation for healthcare operations.",
+                "Expose retrieval workflows through APIs and document quality, latency, and failure handling for production review."
             ]
         })
     if any(word in text for word in ["sql", "postgresql", "data", "analytics", "tableau", "power bi", "forecasting"]):
         suggestions.append({
-            "name": "Analytics KPI Dashboard",
+            "name": "Operational Analytics & Decision Intelligence Platform",
             "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"sql", "postgresql", "python", "tableau", "power bi", "excel"}],
             "bullets": [
-                "Create cleaned datasets, KPI queries, and dashboard views that answer role-specific business questions.",
-                "Document assumptions, data quality checks, and recommendations so recruiters can see analytical judgment."
+                "Create cleaned datasets, KPI queries, and dashboard views that answer operational business questions.",
+                "Document assumptions, data quality checks, and recommendations to show analytical judgment and decision support."
             ]
         })
     if any(word in text for word in ["java", "spring boot", "microservices", "kafka"]):
         suggestions.append({
-            "name": "Spring Boot Event-Driven Service",
+            "name": "Enterprise Event-Driven Claims Processing Service",
             "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"java", "spring boot", "postgresql", "kafka", "docker"}],
             "bullets": [
                 "Build a REST service with validation, persistence, event publishing, tests, and API documentation.",
-                "Show service boundaries, failure handling, and database design decisions in the project README."
+                "Show service boundaries, failure handling, and database design decisions for scalable claims-processing workflows."
             ]
         })
     return suggestions[:5]
@@ -870,7 +971,7 @@ def _resume_ready_project(project: dict) -> dict:
     return {
         "name": project.get("name", "Relevant Technical Project"),
         "technologies": project.get("technologies", []),
-        "bullets": [_project_bullet_to_resume_style(bullet) for bullet in project.get("bullets", [])[:3]],
+        "bullets": _enforce_verb_variety([_project_bullet_to_resume_style(bullet) for bullet in project.get("bullets", [])[:3]]),
     }
 
 
@@ -888,8 +989,39 @@ def _project_bullet_to_resume_style(bullet: str) -> str:
     for pattern, replacement in replacements.items():
         text = re.sub(pattern, replacement, text)
     if not _starts_with_action(text):
-        text = f"Built {text[0].lower() + text[1:]}" if text else "Built a role-relevant technical project"
-    return _restore_acronyms(text) + "."
+        text = f"Engineered {text[0].lower() + text[1:]}" if text else "Engineered a role-relevant technical project"
+    return _clean_generated_sentence(_restore_acronyms(text)) + "."
+
+
+def _humanize_resume(resume: dict) -> None:
+    all_bullets: list[tuple[dict, int, str]] = []
+    for job in resume.get("experience", []):
+        cleaned = []
+        for bullet in job.get("bullets", []):
+            cleaned.append(_remove_ai_tone(_clean_generated_sentence(_upgrade_action_opening(bullet.rstrip(".")))) + ".")
+        job["bullets"] = cleaned
+        all_bullets.extend((job, index, bullet) for index, bullet in enumerate(cleaned))
+    for project in resume.get("projects", []):
+        project["name"] = _brand_project_name(project.get("name", "Technical Project"))
+        project["technologies"] = _dedupe_related_keywords([tech for tech in project.get("technologies", []) if _valid_skill(tech)])[:8]
+        cleaned = [_remove_ai_tone(_clean_generated_sentence(_upgrade_action_opening(bullet.rstrip(".")))) + "." for bullet in project.get("bullets", [])]
+        project["bullets"] = cleaned
+        all_bullets.extend((project, index, bullet) for index, bullet in enumerate(cleaned))
+    varied = _enforce_verb_variety([bullet for _, _, bullet in all_bullets])
+    for (owner, index, _), bullet in zip(all_bullets, varied):
+        owner["bullets"][index] = bullet
+    resume["skills"] = _categorize_skills(_all_skills(resume), resume.get("target_keywords", []))
+
+
+def _brand_project_name(name: str) -> str:
+    mapping = {
+        "Frontend Job Tracker Dashboard": "AI-Assisted Hiring Intelligence Dashboard",
+        "Cloud Deployment Pipeline": "Enterprise CI/CD Deployment Orchestrator",
+        "RAG Document Assistant": "Multimodal Healthcare Document Intelligence Engine",
+        "Analytics KPI Dashboard": "Operational Analytics & Decision Intelligence Platform",
+        "Spring Boot Event-Driven Service": "Enterprise Event-Driven Claims Processing Service",
+    }
+    return mapping.get(name, name)
 
 
 def _remove_ai_tone(text: str) -> str:

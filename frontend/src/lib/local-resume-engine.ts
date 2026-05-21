@@ -29,12 +29,12 @@ export type LocalEditResult = {
 };
 
 const weakVerbRules: Array<[RegExp, string]> = [
-  [/\bworked on\b/gi, "developed"],
+  [/\bworked on\b/gi, "engineered"],
   [/\bhelped with\b/gi, "supported"],
-  [/\bresponsible for\b/gi, "managed"],
+  [/\bresponsible for\b/gi, "owned"],
   [/\binvolved in\b/gi, "contributed to"],
   [/\bparticipated in\b/gi, "contributed to"],
-  [/\bmade\b/gi, "built"],
+  [/\bmade\b/gi, "designed"],
   [/\bused\b/gi, "applied"]
 ];
 
