@@ -1104,6 +1104,8 @@ def _duty_fragments(job_analysis: dict) -> list[str]:
             if not piece or re.fullmatch(r"(?i)(build|design|develop|manage|own|lead|collaborate|implement|optimize|automate|support|create|deliver|maintain|monitor|analyze|integrate|scale|architect|partner|improve)", piece.strip()):
                 continue
             clean = re.sub(r"(?i)^responsibilities?\s*:\s*", "", _clean_bullet(piece).strip(" .")).strip()
+            if re.match(r"(?i)^(required|preferred|minimum|basic)\s+(skills|qualifications|requirements)\s*:", clean):
+                continue
             if re.search(r"(?i)\b(engineer|developer|analyst|architect)\b", clean) and len(clean.split()) <= 4:
                 continue
             if 3 <= len(clean.split()) <= 18:
@@ -1499,13 +1501,22 @@ def _humanize_resume(resume: dict) -> None:
 
 
 def _recruiter_realism_pass(resume: dict, job_analysis: dict) -> None:
+    bullet_index = 0
     for job in resume.get("experience", []):
-        job["bullets"] = [_recruiter_safe_sentence(bullet, job_analysis, index) for index, bullet in enumerate(job.get("bullets", []))]
+        cleaned = []
+        for bullet in job.get("bullets", []):
+            cleaned.append(_recruiter_safe_sentence(bullet, job_analysis, bullet_index))
+            bullet_index += 1
+        job["bullets"] = cleaned
     for project in resume.get("projects", []):
         project["name"] = _business_project_name(project.get("name", ""), job_analysis)
-        project["bullets"] = [_recruiter_safe_sentence(bullet, job_analysis, index) for index, bullet in enumerate(project.get("bullets", []))]
+        cleaned = []
+        for bullet in project.get("bullets", []):
+            cleaned.append(_recruiter_safe_sentence(bullet, job_analysis, bullet_index))
+            bullet_index += 1
+        project["bullets"] = cleaned
     resume["projects"] = _dedupe_projects_by_name(resume.get("projects", []))
-    _remove_repetitive_sentence_shapes(resume)
+    _remove_repetitive_sentence_shapes(resume, job_analysis)
 
 
 def _recruiter_safe_sentence(text: str, job_analysis: dict, index: int) -> str:
@@ -1662,7 +1673,7 @@ def _copied_jd_fragments(text: str, job_analysis: dict) -> list[str]:
     return _unique(copied)[:4]
 
 
-def _remove_repetitive_sentence_shapes(resume: dict) -> None:
+def _remove_repetitive_sentence_shapes(resume: dict, job_analysis: Optional[dict] = None) -> None:
     bullets = []
     owners = []
     for job in resume.get("experience", []):
@@ -1674,8 +1685,148 @@ def _remove_repetitive_sentence_shapes(resume: dict) -> None:
             owners.append((project, index))
             bullets.append(bullet)
     varied = _enforce_verb_variety(bullets)
-    for (owner, index), bullet in zip(owners, varied):
+    used_endings: set[str] = set()
+    used_percentages: set[str] = set()
+    used_stems: set[str] = set()
+    for global_index, ((owner, index), bullet) in enumerate(zip(owners, varied)):
+        bullet = _avoid_repeated_ending(bullet, job_analysis or {}, global_index, used_endings, used_percentages, used_stems)
         owner["bullets"][index] = bullet
+
+
+def _avoid_repeated_ending(
+    bullet: str,
+    job_analysis: dict,
+    index: int,
+    used_endings: set[str],
+    used_percentages: set[str],
+    used_stems: set[str],
+) -> str:
+    base = bullet.rstrip(".")
+    base = _avoid_repeated_stem(base, job_analysis, index, used_stems)
+    ending = base.split(";")[-1].strip().lower() if ";" in base else ""
+    percent = re.search(r"\b\d+%\b", base)
+    repeated_percent = bool(percent and percent.group(0) in used_percentages)
+    if ending and ending in used_endings or repeated_percent:
+        replacement = _replacement_outcome(job_analysis, index, used_endings)
+        base = re.sub(r";\s*[^.;]+$", f"; {replacement}", base) if ";" in base else f"{base}; {replacement}"
+        ending = replacement.lower()
+    if ending:
+        used_endings.add(ending)
+    percent = re.search(r"\b\d+%\b", base)
+    if percent:
+        used_percentages.add(percent.group(0))
+    return base.rstrip(" .") + "."
+
+
+def _avoid_repeated_stem(base: str, job_analysis: dict, index: int, used_stems: set[str]) -> str:
+    stem = base.split(";")[0].strip()
+    stem_key = _stem_key(stem)
+    if stem_key and stem_key in used_stems:
+        context = _fresh_context(job_analysis, index, used_stems)
+        impact = _role_impact_phrase(job_analysis, index + 3)
+        if re.search(r"\b(for|supporting|aligned with)\s+[^,;]+,\s+improving\s+[^;]+", stem, re.I):
+            stem = re.sub(r"\b(for|supporting|aligned with)\s+[^,;]+,\s+improving\s+[^;]+", f"for {context}, improving {impact}", stem, flags=re.I)
+        else:
+            stem = f"{stem} for {context}"
+        base = stem + (";" + ";".join(base.split(";")[1:]) if ";" in base else "")
+        stem_key = _stem_key(stem)
+    if stem_key:
+        used_stems.add(stem_key)
+    return base
+
+
+def _stem_key(stem: str) -> str:
+    context = re.search(r"\b(?:for|supporting|aligned with)\s+([^,;]+),\s+improving\s+([^;]+)", stem, re.I)
+    if context:
+        return f"{context.group(1)}|{context.group(2)}".lower()
+    stem_key = re.sub(r"^[A-Za-z]+\s+", "", stem.lower())
+    stem_key = re.sub(r"\b(api|apis|dashboard|dashboards|workflow|workflows|application|applications|deployment|deployments|services?)\b", "", stem_key)
+    return re.sub(r"\s+", " ", stem_key).strip()
+
+
+def _fresh_context(job_analysis: dict, index: int, used_stems: set[str]) -> str:
+    raw_candidates = _translated_role_contexts(job_analysis) + _duty_fragments(job_analysis)
+    candidates = [
+        _short_context_phrase(_plain_focus_phrase(candidate))
+        for candidate in raw_candidates
+        if candidate and not re.match(r"(?i)^(required|preferred|minimum|basic)\s+(skills|qualifications|requirements)\s*:", candidate)
+    ] + [
+        "implementation planning",
+        "operational review",
+        "release readiness",
+        "service ownership",
+        "cross-functional delivery",
+        "production support workflows",
+    ]
+    for offset in range(len(candidates) + 1):
+        candidate = candidates[(index + offset) % len(candidates)] if candidates else "technical delivery"
+        if candidate.lower() not in " ".join(used_stems):
+            return candidate
+    return candidates[index % len(candidates)] if candidates else "technical delivery"
+
+
+def _short_context_phrase(value: str) -> str:
+    clean = re.split(r",|;|\band\b", value)[0].strip()
+    return clean or value
+
+
+def _replacement_outcome(job_analysis: dict, index: int, used_endings: set[str]) -> str:
+    candidates = (
+        [_concrete_scale_phrase(job_analysis, index + 5), _non_numeric_outcome_phrase(job_analysis, index + 7)]
+        + [_concrete_scale_phrase(job_analysis, index + offset) for offset in range(1, 12)]
+        + [_non_numeric_outcome_phrase(job_analysis, index + offset) for offset in range(1, 12)]
+        + _fallback_unique_outcomes(job_analysis)
+    )
+    return next((item for item in candidates if item.lower() not in used_endings), candidates[0])
+
+
+def _fallback_unique_outcomes(job_analysis: dict) -> list[str]:
+    family = _role_family(job_analysis)
+    common = [
+        "improved release review quality without adding process overhead",
+        "created clearer ownership across implementation steps",
+        "reduced avoidable follow-up during delivery review",
+        "made operational risks easier to identify before release",
+        "improved handoff quality between build and support work",
+        "created a cleaner path from requirements to implementation",
+        "reduced ambiguity in service behavior and operational review",
+        "made recurring delivery work easier to validate",
+        "strengthened production-readiness review before deployment",
+        "improved traceability across system changes",
+    ]
+    role_specific = {
+        "platform_engineering": [
+            "made deployment behavior easier to compare across environments",
+            "improved service health review before production changes",
+            "reduced uncertainty during release troubleshooting",
+            "created cleaner operational checks for cloud workloads",
+        ],
+        "solutions_architecture": [
+            "made integration assumptions easier to validate with engineering teams",
+            "reduced ambiguity around API ownership and rollout needs",
+            "created clearer architecture notes for implementation planning",
+            "improved alignment between requirements and technical delivery",
+        ],
+        "ai_engineering": [
+            "made retrieval behavior easier to evaluate before release",
+            "improved review quality for AI-assisted workflow decisions",
+            "created clearer checkpoints for model and data workflow behavior",
+            "reduced ambiguity in AI output validation",
+        ],
+        "analytics": [
+            "made recurring reporting logic easier to audit",
+            "improved confidence in operational metric definitions",
+            "reduced ambiguity across dashboard inputs and outputs",
+            "created clearer review paths for data quality issues",
+        ],
+        "product_frontend": [
+            "made user workflow behavior easier to test and review",
+            "improved consistency across repeated interface states",
+            "reduced ambiguity between API behavior and screen behavior",
+            "created cleaner handoffs between product and engineering review",
+        ],
+    }
+    return role_specific.get(family, []) + common
 
 
 def _business_project_name(name: str, job_analysis: dict) -> str:

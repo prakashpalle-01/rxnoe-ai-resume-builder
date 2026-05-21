@@ -6,6 +6,8 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
   const p = resume.personal_info;
   const headline = resume.target_title || resume.experience?.[0]?.title;
   const template = resumeTemplates.find((item) => item.id === templateId) ?? resumeTemplates[0];
+  let experienceBulletIndex = 0;
+  const maxExperienceHighlights = Math.max(1, Math.ceil(resume.experience.reduce((count, job) => count + job.bullets.length, 0) * 0.35));
   return (
     <article className={cn("resume-paper mx-auto min-h-[1050px] max-w-[780px] bg-white p-10 text-[13px] leading-5 text-slate-900", template.className)}>
       <header className="border-b border-slate-300 pb-3 text-center">
@@ -33,7 +35,10 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
               <span className="text-xs text-slate-600">{[job.start_date, job.end_date].filter(Boolean).join(" - ")}</span>
             </div>
             <ul className="mt-1 list-disc pl-5">
-              {job.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{highlightBullet(bullet, resume.target_keywords, bulletIndex)}</li>)}
+              {job.bullets.map((bullet, bulletIndex) => {
+                const globalIndex = experienceBulletIndex++;
+                return <li key={bulletIndex}>{highlightBullet(bullet, resume.target_keywords, globalIndex, maxExperienceHighlights)}</li>;
+              })}
             </ul>
           </div>
         ))}
@@ -113,9 +118,10 @@ function orderedSkillEntries(skills: ResumeJson["skills"]) {
     .filter(([, values]) => values.length > 0);
 }
 
-function highlightBullet(text: string, keywords: string[] = [], bulletIndex = 0) {
+function highlightBullet(text: string, keywords: string[] = [], bulletIndex = 0, maxHighlights = 2) {
+  if (bulletIndex >= maxHighlights * 2) return text;
   const metric = text.match(/\b(?:reduced|improved|increased|cut|shortened|accelerated|processed|saved|lowered|raised)[^.;,]*?\b\d+%|\b\d+[%x]\b/iu)?.[0];
-  const phrase = metric || (bulletIndex % 3 === 0 ? firstKeywordMatch(text, keywords) : "");
+  const phrase = metric || (bulletIndex % 4 === 0 ? firstKeywordMatch(text, keywords) : "");
   if (!phrase) return text;
   const index = text.toLowerCase().indexOf(phrase.toLowerCase());
   if (index < 0) return text;
