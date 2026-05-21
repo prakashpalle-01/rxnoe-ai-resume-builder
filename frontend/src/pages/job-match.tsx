@@ -11,10 +11,14 @@ import { defaultTemplateId, resumeTemplates, type ResumeTemplateId } from "../li
 
 type JobAnalysis = {
   job_title: string;
+  role_titles?: string[];
   company: string;
   required_skills: string[];
   preferred_skills: string[];
+  tools?: string[];
+  technologies?: string[];
   responsibilities: string[];
+  job_duties?: string[];
   seniority_level: string;
   domain: string;
   hidden_recruiter_expectations: string[];
@@ -170,10 +174,16 @@ export function JobMatchPage() {
                 <h3 className="mb-2 text-sm font-semibold">Skills Needed</h3>
                 <div className="flex flex-wrap gap-2">{neededSkills(jobAnalysis).map((skill) => <Badge key={skill}>{skill}</Badge>)}</div>
               </div>
+              {Boolean(jobAnalysis.tools?.length) && (
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold">Tools & Platforms</h3>
+                  <div className="flex flex-wrap gap-2">{jobAnalysis.tools?.slice(0, 14).map((tool) => <Badge key={tool} tone="slate">{tool}</Badge>)}</div>
+                </div>
+              )}
               <div>
-                <h3 className="mb-2 text-sm font-semibold">Role Responsibilities</h3>
+                <h3 className="mb-2 text-sm font-semibold">Job Duties To Match</h3>
                 <ul className="space-y-2 text-sm text-slate-700">
-                  {jobAnalysis.responsibilities.slice(0, 4).map((item) => <li className="rounded-md bg-slate-50 p-2" key={item}>{item}</li>)}
+                  {(jobAnalysis.job_duties ?? jobAnalysis.responsibilities).slice(0, 6).map((item) => <li className="rounded-md bg-slate-50 p-2" key={item}>{item}</li>)}
                 </ul>
               </div>
               <div>
@@ -341,9 +351,10 @@ function neededSkills(analysis: JobAnalysis) {
 }
 
 function roleSummary(analysis: JobAnalysis) {
-  const title = analysis.job_title || "This role";
+  const title = analysis.job_title || analysis.role_titles?.[0] || "This role";
   const level = analysis.seniority_level ? `${analysis.seniority_level.toLowerCase()} ` : "";
   const domain = analysis.domain && analysis.domain !== "General Technology" ? ` in ${analysis.domain.toLowerCase()}` : "";
   const skills = neededSkills(analysis).slice(0, 5).join(", ");
-  return `${title} is a ${level}role${domain} focused on ${analysis.responsibilities[0] || "delivering role-specific technical work"}. The resume should emphasize ${skills || "the required tools, responsibilities, and business impact"}.`;
+  const duty = (analysis.job_duties ?? analysis.responsibilities)[0] || "delivering role-specific technical work";
+  return `${title} is a ${level}role${domain} focused on ${duty}. The resume should emphasize ${skills || "the required tools, responsibilities, and business impact"}.`;
 }

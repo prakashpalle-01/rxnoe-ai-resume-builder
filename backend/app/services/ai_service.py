@@ -87,6 +87,8 @@ GENERIC_KEYWORDS = {
 KNOWN_KEYWORDS = [
     "Python", "Java", "JavaScript", "TypeScript", "React", "Node", "FastAPI", "Spring Boot", "SQL",
     "PostgreSQL", "AWS", "Azure", "GCP", "Docker", "Kubernetes", "CI/CD", "Git", "REST", "GraphQL",
+    "HTML5", "CSS3", "Tailwind CSS", "Redux", "React Query", "Next.js", "Angular", "Vue", "Svelte",
+    "Django", "Flask", "Express", "NestJS", ".NET", "C#", "Go", "Ruby", "Ruby on Rails", "PHP",
     "Machine Learning", "LLM", "RAG", "Tableau", "Power BI", "Excel", "Agile", "Scrum", "Kafka",
     "Redis", "Celery", "Microservices", "Data Analysis", "ETL", "Leadership", "Communication", "APIs",
     "Generative AI", "GenAI", "NLP", "Computer Vision", "AI Agents", "Vector Embeddings", "LoRA", "QLoRA",
@@ -96,7 +98,12 @@ KNOWN_KEYWORDS = [
     "OpenAI APIs", "MLflow", "Model Monitoring", "Drift Detection", "Prometheus", "Grafana", "OpenTelemetry",
     "Sentry", "PII Masking", "Hallucination Detection", "Prompt Injection", "Rate Limiting", "Linux",
     "UNIX", "Ubuntu", "Cursor", "Windsurf", "IntelliJ IDEA", "Visual Studio", "GitHub Copilot", "Snowflake",
-    "SageMaker", "Bedrock", "Lambda", "EKS", "ECS", "ECR", "S3", "EC2", "BigQuery", "PySpark"
+    "SageMaker", "Bedrock", "Lambda", "EKS", "ECS", "ECR", "S3", "EC2", "BigQuery", "PySpark",
+    "MongoDB", "DynamoDB", "Qdrant", "Neo4j", "Elasticsearch", "OpenSearch", "Airflow", "dbt",
+    "Databricks", "Spark", "Pandas", "NumPy", "Jupyter", "Looker", "Jenkins", "GitHub Actions",
+    "GitLab CI", "Azure DevOps", "Terraform", "Ansible", "Helm", "Istio", "Nginx", "Prometheus",
+    "OAuth", "SSO", "JWT", "IAM", "SOC 2", "HIPAA", "Cypress", "Jest", "Playwright", "Selenium",
+    "Postman", "Swagger", "OpenAPI", "Figma", "Jira", "Confluence", "SDLC", "TDD", "BDD"
 ]
 
 
@@ -116,21 +123,28 @@ def parse_resume(text: str) -> tuple[dict, dict]:
 
 
 def analyze_job_description(text: str) -> dict:
+    sections = _jd_sections(text)
     keywords = extract_keywords(text)
     title = _extract_job_title(text)
+    required = _extract_required_skills(sections, keywords)
+    preferred = _extract_preferred_skills(sections, keywords, required)
+    responsibilities = _extract_responsibilities(text, sections)
+    tools = _extract_tools(keywords)
     return {
         "job_title": title,
         "company": "",
-        "required_skills": keywords[:12],
-        "preferred_skills": keywords[12:20],
-        "tools": [kw for kw in keywords if kw.lower() in {"aws", "azure", "gcp", "docker", "kubernetes", "sql", "python", "java", "react", "tableau", "power bi"}],
+        "role_titles": _extract_role_titles(text, title),
+        "required_skills": required,
+        "preferred_skills": preferred,
+        "tools": tools,
         "technologies": keywords,
-        "responsibilities": _sentences(text)[:6],
+        "responsibilities": responsibilities,
+        "job_duties": responsibilities,
         "seniority_level": _seniority(text),
         "domain": _domain(text),
         "keywords": keywords,
-        "soft_skills": [kw for kw in keywords if kw.lower() in {"communication", "leadership", "collaboration", "stakeholder", "problem solving"}],
-        "hidden_recruiter_expectations": [
+        "soft_skills": _soft_skills(text, keywords),
+        "hidden_recruiter_expectations": _hidden_expectations(text, keywords, responsibilities) or [
             "Clear role alignment in the top third of the resume",
             "Evidence of impact without inflated claims",
             "Recent experience connected to required tools and responsibilities"
@@ -147,14 +161,14 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
         return _merge_schema(optimized), "Generated a deeply optimized ATS-friendly resume using the configured AI provider."
 
     optimized = deepcopy(_merge_schema(resume))
-    jd_keywords = extract_keywords(job_description or "")
     job_analysis = analyze_job_description(job_description or "")
+    jd_keywords = job_analysis.get("keywords", extract_keywords(job_description or ""))
     summary = optimized.get("summary") or ""
     top_skills = _rank_user_skills(_all_skills(optimized), jd_keywords)
-    optimized["skills"] = _categorize_skills(_all_skills(optimized), jd_keywords)
+    optimized["skills"] = _categorize_skills(_blend_job_skills(_all_skills(optimized), job_analysis), jd_keywords)
     if job_analysis.get("job_title"):
         optimized["target_title"] = job_analysis["job_title"]
-    optimized["target_keywords"] = _supported_jd_keywords(optimized, jd_keywords)
+    optimized["target_keywords"] = _targeted_keywords(optimized, job_analysis)
     if should_target or "summary" in instruction.lower() or not summary:
         optimized["summary"] = _summary(optimized, optimized["target_keywords"] or top_skills, job_analysis.get("job_title", ""))
     for job in optimized.get("experience", []):
@@ -226,38 +240,131 @@ def extract_keywords(text: str) -> list[str]:
     found = []
     lower = text.lower()
     for item in KNOWN_KEYWORDS:
-        if item.lower() in lower and item not in found:
+        if _keyword_in_text(item, lower) and item not in found:
             found.append(item)
     words = re.findall(r"\b[A-Za-z][A-Za-z+#.-]{2,}\b", text)
     extras = []
     stop = {"and", "the", "for", "with", "you", "our", "will", "are", "that", "this", "from", "job", "work", "role", "requiring", "required", "responsibilities", "experience", "engineer", "developer", "analyst"} | GENERIC_KEYWORDS
     for word in words:
+        if word.lower() == "github" and any(item.lower().startswith("github ") for item in found):
+            continue
         if word.lower() not in stop and _looks_like_keyword(word) and word.title() not in found and word.title() not in extras:
             extras.append(word.title())
     return (found + extras)[:35]
 
 
+def _keyword_in_text(keyword: str, lower_text: str) -> bool:
+    pattern = re.escape(keyword.lower()).replace(r"\ ", r"[\s/-]+")
+    return bool(re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", lower_text))
+
+
 def _looks_like_keyword(word: str) -> bool:
     lower = word.lower().strip(".")
-    if lower in GENERIC_KEYWORDS or len(lower) <= 4:
+    if lower in GENERIC_KEYWORDS or lower.endswith("-based") or len(lower) <= 4:
         return False
     return bool(re.search(r"[A-Z+#./-]", word[1:]) or lower in {"django", "terraform", "qdrant", "neo4j", "snowflake", "langchain", "prometheus", "grafana"})
 
 
 def _extract_job_title(text: str) -> str:
-    explicit = re.search(r"(?im)^\s*(job title|title|role)\s*[:\-]\s*([A-Za-z0-9/ &.+#-]{3,80})", text)
+    explicit = re.search(r"(?im)^\s*(job title|title|role|position|opening)\s*[:\-]\s*([A-Za-z0-9/ &.+#-]{3,100})", text)
     if explicit:
         return _format_title(re.split(r"\.|\n|required|preferred|responsibilities", explicit.group(2), flags=re.I)[0])
     title_match = re.search(
-        r"(?i)(genai engineer|generative ai engineer|machine learning engineer|ml engineer|ai engineer|data engineer|data analyst|software engineer|software developer|product engineer|devops engineer|cloud engineer|business analyst|java developer|python developer|react developer|full stack developer|full stack engineer|backend developer|backend engineer|frontend developer|frontend engineer)",
+        r"(?i)(principal|staff|senior|sr\.?|lead|mid-level|junior|entry-level)?\s*(genai engineer|generative ai engineer|machine learning engineer|ml engineer|ai engineer|data engineer|data scientist|data analyst|analytics engineer|business intelligence analyst|platform engineer|site reliability engineer|sre|software engineer|software developer|product engineer|devops engineer|cloud engineer|solutions architect|cloud architect|business analyst|systems analyst|qa engineer|test automation engineer|java developer|python developer|react developer|full stack developer|full stack engineer|backend developer|backend engineer|frontend developer|frontend engineer|mobile engineer|ios developer|android developer|security engineer|cybersecurity analyst)",
         text,
     )
     if title_match:
-        return _format_title(title_match.group(1))
+        return _format_title(title_match.group(0))
+    looking_for = re.search(r"(?i)(looking for|seeking|hiring|join us as)\s+(an?\s+)?([A-Za-z0-9/ &.+#-]{3,80}?(engineer|developer|analyst|architect|scientist|manager|specialist|consultant))", text)
+    if looking_for:
+        return _format_title(looking_for.group(3))
     for line in _clean_lines(text)[:8]:
         if 2 <= len(line.split()) <= 8 and re.search(r"(?i)\b(engineer|developer|analyst|architect|manager|specialist)\b", line):
             return _format_title(line)
     return ""
+
+
+def _extract_role_titles(text: str, primary: str) -> list[str]:
+    titles = [primary] if primary else []
+    for match in re.finditer(r"(?i)\b((principal|staff|senior|sr\.?|lead|junior|entry-level|mid-level)?\s*[A-Za-z/&.+#-]{2,30}\s+(engineer|developer|analyst|architect|scientist|manager|specialist|consultant))\b", text):
+        title = _format_title(match.group(1))
+        if title and title not in titles and len(title.split()) <= 6:
+            titles.append(title)
+    return titles[:6]
+
+
+def _jd_sections(text: str) -> dict[str, str]:
+    aliases = {
+        "required": {"required qualifications", "requirements", "required skills", "must have", "minimum qualifications", "basic qualifications"},
+        "preferred": {"preferred qualifications", "nice to have", "preferred skills", "bonus", "plus"},
+        "responsibilities": {"responsibilities", "what you will do", "what you'll do", "duties", "role responsibilities", "day to day"},
+        "summary": {"about the role", "job summary", "overview", "description"}
+    }
+    sections: dict[str, list[str]] = {"summary": []}
+    current = "summary"
+    for line in _clean_lines(text):
+        normalized = re.sub(r"[^a-z ]", "", line.lower()).strip()
+        matched = next((key for key, names in aliases.items() if normalized in names), None)
+        if matched:
+            current = matched
+            sections.setdefault(current, [])
+            continue
+        sections.setdefault(current, []).append(line)
+    return {key: "\n".join(values) for key, values in sections.items()}
+
+
+def _extract_required_skills(sections: dict[str, str], keywords: list[str]) -> list[str]:
+    source = "\n".join([sections.get("required", ""), sections.get("responsibilities", "")])
+    skills = extract_keywords(source) if source.strip() else []
+    return _unique(skills + keywords[:8])[:18]
+
+
+def _extract_preferred_skills(sections: dict[str, str], keywords: list[str], required: list[str]) -> list[str]:
+    skills = extract_keywords(sections.get("preferred", "")) if sections.get("preferred", "").strip() else []
+    required_keys = {_keyword_key(item) for item in required}
+    remaining = [keyword for keyword in keywords if _keyword_key(keyword) not in required_keys]
+    return _unique(skills + remaining)[:14]
+
+
+def _extract_tools(keywords: list[str]) -> list[str]:
+    tool_keys = {"aws", "azure", "gcp", "docker", "kubernetes", "sql", "postgresql", "mysql", "mongodb", "redis", "python", "java", "react", "tableau", "power bi", "terraform", "jenkins", "github actions", "jira", "confluence", "figma", "postman", "swagger", "openapi"}
+    return [kw for kw in keywords if _keyword_key(kw) in {_keyword_key(item) for item in tool_keys}]
+
+
+def _extract_responsibilities(text: str, sections: dict[str, str]) -> list[str]:
+    source = sections.get("responsibilities") or text
+    lines = []
+    for line in _clean_lines(source):
+        clean = _clean_bullet(line)
+        if len(clean.split()) >= 4 and re.search(r"(?i)\b(build|design|develop|manage|own|lead|collaborate|implement|optimize|automate|support|create|deliver|maintain|monitor|analyze|integrate|scale|architect|troubleshoot)\b", clean):
+            lines.append(clean)
+    if not lines:
+        lines = _sentences(text)
+    return _unique(lines)[:8]
+
+
+def _soft_skills(text: str, keywords: list[str]) -> list[str]:
+    soft = ["Communication", "Leadership", "Collaboration", "Stakeholder Management", "Problem Solving", "Mentoring", "Ownership", "Agile", "Scrum"]
+    lower = text.lower()
+    found = [skill for skill in soft if skill.lower() in lower]
+    found.extend([kw for kw in keywords if kw.lower() in {"communication", "leadership", "agile", "scrum"}])
+    return _unique(found)[:8]
+
+
+def _hidden_expectations(text: str, keywords: list[str], responsibilities: list[str]) -> list[str]:
+    expectations = ["Clear role alignment in the top third of the resume"]
+    lower = text.lower()
+    if any(word in lower for word in ["scale", "scalable", "distributed", "high volume", "millions"]):
+        expectations.append("Evidence of scalable systems, performance, or high-volume processing")
+    if any(word in lower for word in ["cross-functional", "stakeholder", "product", "business"]):
+        expectations.append("Ability to translate business requirements into technical delivery")
+    if any(word in lower for word in ["ai", "llm", "rag", "machine learning", "automation"]):
+        expectations.append("Practical AI workflow experience with reliability, evaluation, and production constraints")
+    if responsibilities:
+        expectations.append("Recent bullets should mirror the role's core duties without sounding keyword-stuffed")
+    if keywords:
+        expectations.append("Required tools should appear naturally in skills, projects, and recent experience")
+    return _unique(expectations)[:6]
 
 
 def _heuristic_parse(text: str) -> dict:
@@ -582,7 +689,7 @@ def _all_skills(resume: dict) -> list[str]:
 def _normalize_skill_items(value: str) -> list[str]:
     text = str(value).strip()
     text = re.sub(r"(?i)^(frontend|backend|cloud\s*&?\s*devops|ai\s*&?\s*automation|tools?|databases?|technical|skills?)\s*:\s*", "", text)
-    parts = re.split(r",|;|\||/|\band\b", text)
+    parts = re.split(r",|;|\||\band\b", text)
     return [part.strip() for part in parts if part.strip()]
 
 
@@ -620,6 +727,19 @@ def _supported_jd_keywords(resume: dict, jd_keywords: list[str]) -> list[str]:
     return supported[:18]
 
 
+def _targeted_keywords(resume: dict, job_analysis: dict) -> list[str]:
+    required = job_analysis.get("required_skills", [])
+    preferred = job_analysis.get("preferred_skills", [])
+    tools = job_analysis.get("tools", [])
+    supported = _supported_jd_keywords(resume, required + preferred + tools)
+    return _unique(supported + required[:10] + tools[:8] + preferred[:6])[:28]
+
+
+def _blend_job_skills(user_skills: list[str], job_analysis: dict) -> list[str]:
+    jd_skills = job_analysis.get("required_skills", []) + job_analysis.get("tools", []) + job_analysis.get("preferred_skills", [])[:6]
+    return _unique([skill for skill in user_skills + jd_skills if _valid_skill(skill)])
+
+
 def _resume_keyword_text(resume: dict) -> str:
     parts = [
         resume.get("target_title", ""),
@@ -652,7 +772,7 @@ def _categorize_skills(skills: list[str], jd_keywords: Optional[list[str]] = Non
         "deep_learning": ["ANN", "CNN", "RNN", "LSTM", "Transformers", "BERT", "GANs"],
         "genai_llm_systems": ["Prompt Engineering", "Semantic Caching", "KV-Cache", "LoRA", "QLoRA", "OpenAI APIs", "LangChain", "Hugging Face"],
         "frameworks_libraries": ["PyTorch", "TensorFlow", "Keras", "Scikit-Learn", "FastAPI", "Spring Boot", "React", "Node", "GraphQL", "REST"],
-        "mlops_engineering": ["MLflow", "Docker", "Kubernetes", "CI/CD", "Model Monitoring", "Drift Detection", "Git", "GitHub"],
+        "mlops_engineering": ["MLflow", "Docker", "Kubernetes", "CI/CD", "Model Monitoring", "Drift Detection", "Git", "GitHub", "GitHub Actions", "GitLab CI", "Azure DevOps", "Jenkins", "Terraform", "Helm", "Istio"],
         "cloud_infrastructure": ["AWS", "Azure", "GCP", "S3", "EC2", "EKS", "ECS", "ECR", "Lambda", "Bedrock", "SageMaker", "BigQuery", "Snowflake"],
         "databases_vector_stores": ["SQL", "PostgreSQL", "MySQL", "NoSQL", "Redis", "Pinecone", "ChromaDB", "FAISS"],
         "programming": ["Python", "Java", "JavaScript", "TypeScript", "R", "PySpark", "APIs", "Microservices"],
