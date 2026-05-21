@@ -732,7 +732,19 @@ def _targeted_keywords(resume: dict, job_analysis: dict) -> list[str]:
     preferred = job_analysis.get("preferred_skills", [])
     tools = job_analysis.get("tools", [])
     supported = _supported_jd_keywords(resume, required + preferred + tools)
-    return _unique(supported + required[:10] + tools[:8] + preferred[:6])[:28]
+    return _unique([keyword for keyword in supported + required[:10] + tools[:8] + preferred[:6] if _highlightable_keyword(keyword)])[:24]
+
+
+def _highlightable_keyword(keyword: str) -> bool:
+    clean = keyword.strip()
+    key = _keyword_key(clean)
+    if not clean or key in GENERIC_KEYWORDS or len(clean) > 35:
+        return False
+    if len(clean) < 4 and not re.fullmatch(r"[A-Z0-9+#./-]{2,}", clean):
+        return False
+    if len(clean.split()) > 4:
+        return False
+    return True
 
 
 def _blend_job_skills(user_skills: list[str], job_analysis: dict) -> list[str]:

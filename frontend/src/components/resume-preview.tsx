@@ -114,14 +114,65 @@ function orderedSkillEntries(skills: ResumeJson["skills"]) {
 }
 
 function highlightKeywords(text: string, keywords: string[] = []) {
-  const important = keywords.filter((keyword) => keyword.length > 1).slice(0, 24);
+  const important = keywordHighlights(keywords);
   if (!important.length) return text;
-  const pattern = new RegExp(`(${important.map(escapeRegExp).join("|")})`, "gi");
+  const pattern = new RegExp(`(^|[^A-Za-z0-9+#./-])(${important.map(escapeRegExp).join("|")})(?=$|[^A-Za-z0-9+#./-])`, "gi");
   return text.split(pattern).map((part, index) =>
     important.some((keyword) => keyword.toLowerCase() === part.toLowerCase())
       ? <strong key={`${part}-${index}`}>{part}</strong>
       : part
   );
+}
+
+function keywordHighlights(keywords: string[] = []) {
+  const blocked = new Set([
+    "associate",
+    "stack",
+    "product",
+    "skills",
+    "required",
+    "preferred",
+    "qualification",
+    "qualifications",
+    "requirements",
+    "responsibilities",
+    "development",
+    "software",
+    "systems",
+    "build",
+    "building",
+    "team",
+    "teams",
+    "business",
+    "technical",
+    "technology",
+    "technologies",
+    "platform",
+    "platforms",
+    "solutions",
+    "solution",
+    "engineer",
+    "engineering",
+    "developer",
+    "analyst",
+    "candidate",
+    "role",
+    "work",
+    "working"
+  ]);
+  const seen = new Set<string>();
+  return keywords
+    .map((keyword) => keyword.trim())
+    .filter((keyword) => {
+      const key = keyword.toLowerCase();
+      if (!keyword || seen.has(key) || blocked.has(key)) return false;
+      seen.add(key);
+      const isAcronym = /^[A-Z0-9+#./-]{2,}$/.test(keyword);
+      const isUsefulPhrase = keyword.includes(" ") && keyword.length >= 5;
+      return isAcronym || isUsefulPhrase || keyword.length >= 4;
+    })
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 18);
 }
 
 function escapeRegExp(value: string) {
