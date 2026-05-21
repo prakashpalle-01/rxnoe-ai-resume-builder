@@ -50,19 +50,6 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
           </div>
         ))}
       </ResumeSection>
-      {Boolean(resume.suggested_projects?.length) && (
-        <ResumeSection title="Recommended Projects To Build">
-          {resume.suggested_projects?.map((project, index) => (
-            <div key={`${project.name}-${index}`} className="mb-3">
-              <strong>{project.name}</strong>
-              {project.technologies.length > 0 && <span className="text-xs text-slate-600"> | {project.technologies.join(", ")}</span>}
-              <ul className="mt-1 list-disc pl-5">
-                {project.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{bullet}</li>)}
-              </ul>
-            </div>
-          ))}
-        </ResumeSection>
-      )}
       {resume.education.length > 0 && <ResumeSection title="Education"><p>{resume.education.join(" | ")}</p></ResumeSection>}
       {resume.certifications.length > 0 && <ResumeSection title="Certifications"><p>{resume.certifications.join(" | ")}</p></ResumeSection>}
     </article>

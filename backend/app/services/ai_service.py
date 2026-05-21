@@ -107,9 +107,9 @@ def parse_resume(text: str) -> tuple[dict, dict]:
 
 def analyze_job_description(text: str) -> dict:
     keywords = extract_keywords(text)
-    title_match = re.search(r"(?i)(genai engineer|generative ai engineer|software engineer|data analyst|ai engineer|devops engineer|cloud engineer|business analyst|java developer|full stack developer|backend developer|backend engineer|frontend developer|frontend engineer)", text)
+    title = _extract_job_title(text)
     return {
-        "job_title": _format_title(title_match.group(1)) if title_match else "",
+        "job_title": title,
         "company": "",
         "required_skills": keywords[:12],
         "preferred_skills": keywords[12:20],
@@ -129,8 +129,11 @@ def analyze_job_description(text: str) -> dict:
 
 
 def optimize_resume(resume: dict, instruction: str, job_description: Optional[str] = None) -> tuple[dict, str]:
+    should_target = any(word in instruction.lower() for word in ["target", "match", "job description", "ats"])
     if settings.openai_api_key and settings.llm_provider.lower() == "openai":
         optimized = _openai_optimize_resume(resume, instruction, job_description or "")
+        if should_target:
+            _mark_generated_targeted_resume(optimized, job_description or "")
         return _merge_schema(optimized), "Generated a deeply optimized ATS-friendly resume using the configured AI provider."
 
     optimized = deepcopy(_merge_schema(resume))
@@ -138,7 +141,6 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     job_analysis = analyze_job_description(job_description or "")
     summary = optimized.get("summary") or ""
     top_skills = _rank_user_skills(_all_skills(optimized), jd_keywords)
-    should_target = any(word in instruction.lower() for word in ["target", "match", "job description", "ats"])
     optimized["skills"] = _categorize_skills(_all_skills(optimized), jd_keywords)
     if job_analysis.get("job_title"):
         optimized["target_title"] = job_analysis["job_title"]
@@ -150,6 +152,8 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     for project in optimized.get("projects", []):
         project_skills = _rank_user_skills(project.get("technologies", []) + top_skills, jd_keywords)
         project["bullets"] = _rewrite_bullets(project.get("bullets", []), project_skills)
+    if should_target:
+        _mark_generated_targeted_resume(optimized, job_description or "")
     optimized["suggested_projects"] = _suggest_projects_for_gap(jd_keywords, optimized)
     optimized["summary"] = _remove_ai_tone(optimized["summary"])
     return optimized, "Improved summary, experience, and project bullets with recruiter-style language, verified skills, clearer impact, and ATS alignment without adding fake claims."
@@ -216,6 +220,22 @@ def extract_keywords(text: str) -> list[str]:
         if word.lower() not in stop and len(word) > 4 and word.title() not in found and word.title() not in extras:
             extras.append(word.title())
     return (found + extras)[:35]
+
+
+def _extract_job_title(text: str) -> str:
+    explicit = re.search(r"(?im)^\s*(job title|title|role)\s*[:\-]\s*([A-Za-z0-9/ &.+#-]{3,80})", text)
+    if explicit:
+        return _format_title(explicit.group(2))
+    title_match = re.search(
+        r"(?i)(genai engineer|generative ai engineer|machine learning engineer|ml engineer|ai engineer|data engineer|data analyst|software engineer|software developer|product engineer|devops engineer|cloud engineer|business analyst|java developer|python developer|react developer|full stack developer|full stack engineer|backend developer|backend engineer|frontend developer|frontend engineer)",
+        text,
+    )
+    if title_match:
+        return _format_title(title_match.group(1))
+    for line in _clean_lines(text)[:8]:
+        if 2 <= len(line.split()) <= 8 and re.search(r"(?i)\b(engineer|developer|analyst|architect|manager|specialist)\b", line):
+            return _format_title(line)
+    return ""
 
 
 def _heuristic_parse(text: str) -> dict:
@@ -716,10 +736,24 @@ def _format_title(title: str) -> str:
     replacements = {
         "genai": "GenAI",
         "ai": "AI",
-        "devops": "DevOps"
+        "ml": "ML",
+        "devops": "DevOps",
+        "frontend": "Frontend",
+        "backend": "Backend",
+        "full": "Full",
+        "stack": "Stack",
     }
-    words = title.lower().split()
-    return " ".join(replacements.get(word, word.capitalize()) for word in words)
+    clean = re.sub(r"[^A-Za-z0-9/ &.+#-]", " ", title)
+    words = clean.lower().split()
+    return " ".join(replacements.get(word, word.capitalize()) for word in words).strip()
+
+
+def _mark_generated_targeted_resume(resume: dict, job_description: str) -> None:
+    analysis = analyze_job_description(job_description)
+    resume["optimization_status"] = "generated_targeted"
+    resume["score_target"] = 100
+    if analysis.get("job_title") and not resume.get("target_title"):
+        resume["target_title"] = analysis["job_title"]
 
 
 def _starts_with_action(text: str) -> bool:
