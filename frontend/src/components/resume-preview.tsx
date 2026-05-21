@@ -33,7 +33,7 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
               <span className="text-xs text-slate-600">{[job.start_date, job.end_date].filter(Boolean).join(" - ")}</span>
             </div>
             <ul className="mt-1 list-disc pl-5">
-              {job.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{highlightBullet(bullet, resume.target_keywords)}</li>)}
+              {job.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{highlightBullet(bullet, resume.target_keywords, bulletIndex)}</li>)}
             </ul>
           </div>
         ))}
@@ -113,9 +113,9 @@ function orderedSkillEntries(skills: ResumeJson["skills"]) {
     .filter(([, values]) => values.length > 0);
 }
 
-function highlightBullet(text: string, keywords: string[] = []) {
+function highlightBullet(text: string, keywords: string[] = [], bulletIndex = 0) {
   const metric = text.match(/\b(?:reduced|improved|increased|cut|shortened|accelerated|processed|saved|lowered|raised)[^.;,]*?\b\d+%|\b\d+[%x]\b/iu)?.[0];
-  const phrase = metric || firstKeywordMatch(text, keywords);
+  const phrase = metric || (bulletIndex % 3 === 0 ? firstKeywordMatch(text, keywords) : "");
   if (!phrase) return text;
   const index = text.toLowerCase().indexOf(phrase.toLowerCase());
   if (index < 0) return text;

@@ -1511,6 +1511,7 @@ def _recruiter_realism_pass(resume: dict, job_analysis: dict) -> None:
 def _recruiter_safe_sentence(text: str, job_analysis: dict, index: int) -> str:
     clean = _remove_ai_tone(_clean_generated_sentence(text.rstrip(".")))
     clean = re.sub(r"(?i)^built app\b", "Built role-aligned workflow application", clean)
+    clean = re.sub(r"(?i)^(architected|engineered|designed|optimized|automated|delivered)\s+app\b", lambda m: f"{m.group(1).capitalize()} role-aligned workflow application", clean)
     clean = re.sub(r"(?i)^built dashboards\b", "Built operational dashboards", clean)
     clean = re.sub(r"(?i)^built deployments\b", "Managed deployment workflows", clean)
     clean = _fix_action_collisions(clean)
@@ -1535,10 +1536,18 @@ def _fix_action_collisions(text: str) -> str:
 def _add_impact_number(text: str, job_analysis: dict, index: int) -> str:
     if re.search(r"\b\d+[%x]?\b|\$|hours?|minutes?|seconds?|days?|weeks?", text, re.I):
         return text
-    outcome = _impact_outcome_phrase(job_analysis, index)
     base = text.rstrip(" .")
-    if index % 2 == 1:
+    if index % 4 == 2:
+        return f"{base}; {_concrete_scale_phrase(job_analysis, index)}"
+    if _planning_or_collaboration_bullet(base):
         return f"{base}; {_non_numeric_outcome_phrase(job_analysis, index)}"
+    if index % 4 == 0:
+        return f"{base}; {_impact_outcome_phrase(job_analysis, index)}"
+    return f"{base}; {_non_numeric_outcome_phrase(job_analysis, index)}"
+
+
+def _planning_or_collaboration_bullet(text: str) -> bool:
+    return bool(re.search(r"(?i)\b(collaborated|partnered|coordinated|aligned|planned|planning|requirements|discovery|handoff|communication|tradeoff|stakeholder)\b", text))
     if re.search(r"(?i)\b(improving|reducing|accelerating|increasing|supporting|enabling)\b", base):
         return f"{base}; {outcome}"
     return f"{base}; {outcome}"
@@ -1550,8 +1559,8 @@ def _impact_outcome_phrase(job_analysis: dict, index: int) -> str:
         "solutions_architecture": [
             "reduced implementation ambiguity by 30%",
             "shortened technical discovery cycles by 25%",
-            "improved handoff clarity by 35%",
             "reduced integration rework by 20%",
+            "cut release-planning rework by 25%",
         ],
         "ai_engineering": [
             "reduced manual review effort by 35%",
@@ -1585,6 +1594,44 @@ def _impact_outcome_phrase(job_analysis: dict, index: int) -> str:
         ],
     }
     options = metrics.get(family, metrics["software_engineering"])
+    return options[index % len(options)]
+
+
+def _concrete_scale_phrase(job_analysis: dict, index: int) -> str:
+    family = _role_family(job_analysis)
+    scales = {
+        "solutions_architecture": [
+            "mapped 10+ integration touchpoints across API and cloud workflows",
+            "organized 8+ implementation assumptions into clear delivery notes",
+            "documented 12+ API and data-flow considerations for release planning",
+        ],
+        "ai_engineering": [
+            "structured 1,000+ document chunks for retrieval review",
+            "evaluated 20+ prompt and retrieval scenarios for quality checks",
+            "organized 5+ AI workflow stages for traceable review",
+        ],
+        "platform_engineering": [
+            "tracked 50+ deployment and observability signals across services",
+            "supported 10+ release workflow checks across cloud environments",
+            "organized 6+ service health checks for operational review",
+        ],
+        "product_frontend": [
+            "supported 10+ reusable UI workflows across API-backed screens",
+            "standardized 15+ component states for repeated product flows",
+            "organized 8+ user workflow paths for cleaner delivery review",
+        ],
+        "analytics": [
+            "modeled 12+ KPI definitions for recurring operational reporting",
+            "organized 20+ SQL checks for data quality review",
+            "supported 5+ dashboard views for recurring business decisions",
+        ],
+        "software_engineering": [
+            "designed 8+ API workflows for operational use cases",
+            "supported 10+ backend validation paths across service workflows",
+            "organized 6+ reliability checks for deployment review",
+        ],
+    }
+    options = scales.get(family, scales["software_engineering"])
     return options[index % len(options)]
 
 
