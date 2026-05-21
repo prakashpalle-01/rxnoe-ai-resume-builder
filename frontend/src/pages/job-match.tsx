@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, FileText, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, FileText, Search, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
@@ -35,6 +35,7 @@ export function JobMatchPage() {
   const [templateId, setTemplateId] = useState<ResumeTemplateId>((localStorage.getItem("rxnoe_template") as ResumeTemplateId) || defaultTemplateId);
   const selectedResume = useMemo(() => resumes.find((resume) => String(resume.id) === selectedResumeId), [resumes, selectedResumeId]);
   const activeScore = afterScore ?? beforeScore ?? atsScore;
+  const currentBeforeResume = beforeResume ?? selectedResume ?? null;
 
   useEffect(() => {
     api.get("/resumes").then((response) => {
@@ -112,40 +113,82 @@ export function JobMatchPage() {
 
   return (
     <div className="space-y-6">
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(360px,0.7fr)]">
-      <Card title="Generate Best-Match Resume">
-        <div className="mb-4 grid gap-2 text-sm text-rx-muted sm:grid-cols-3">
-          <div className="rounded-md bg-slate-50 p-3"><strong className="block text-rx-ink">1. Upload</strong> Parsed resume is selected here.</div>
-          <div className="rounded-md bg-slate-50 p-3"><strong className="block text-rx-ink">2. Paste JD</strong> RxNoe analyzes role requirements.</div>
-          <div className="rounded-md bg-slate-50 p-3"><strong className="block text-rx-ink">3. Generate</strong> See before/after and download.</div>
+      <section className="rounded-lg border border-rx-line bg-white p-5 shadow-panel">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <Badge tone="green">Guided optimizer</Badge>
+            <h1 className="mt-3 text-2xl font-bold tracking-normal">Paste a job description, understand the role, then generate a targeted resume.</h1>
+            <p className="mt-2 max-w-3xl text-sm text-rx-muted">RxNoe summarizes the role, shows required skills, scores your current resume, rewrites the title/summary/bullets, and shows the before/after resume side by side.</p>
+          </div>
+          <div className="grid gap-2 text-sm sm:grid-cols-3 lg:min-w-[520px]">
+            <StepBadge active={Boolean(selectedResumeId)} label="1. Resume" detail={selectedResume ? selectedResume.filename : "Select or upload"} />
+            <StepBadge active={Boolean(jobAnalysis)} label="2. Role Brief" detail={jobAnalysis?.job_title || "Analyze JD"} />
+            <StepBadge active={Boolean(generatedResume)} label="3. Targeted Resume" detail={generatedResume ? "Ready to download" : "Generate"} />
+          </div>
         </div>
-        <label className="mb-3 block text-sm font-medium">
-          Resume
-          <select className="mt-1 h-10 w-full rounded-md border border-rx-line bg-white px-3 text-sm" value={selectedResumeId} onChange={(event) => setSelectedResumeId(event.target.value)}>
-            <option value="">Select a resume</option>
-            {resumes.map((resume) => <option key={resume.id} value={resume.id}>{resume.title}</option>)}
-          </select>
-        </label>
-        <label className="mb-3 block text-sm font-medium">
-          Resume design
-          <select className="mt-1 h-10 w-full rounded-md border border-rx-line bg-white px-3 text-sm" value={templateId} onChange={(event) => chooseTemplate(event.target.value as ResumeTemplateId)}>
-            {resumeTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-          </select>
-        </label>
-        {selectedResume && <p className="mb-3 text-xs text-rx-muted">Analyzing: {selectedResume.filename}</p>}
-        <Textarea className="min-h-[420px]" placeholder="Paste the full job description here. RxNoe will generate the strongest ATS-friendly resume version it can truthfully support from your resume." value={jobDescription} onChange={(event) => setJobDescription(event.target.value)} />
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button disabled={!jobDescription.trim() || !selectedResumeId || Boolean(busy)} onClick={analyze}><Search size={17} /> {busy === "analyze" ? "Analyzing..." : "Analyze match"}</Button>
-          <Button className="bg-rx-green hover:bg-emerald-700" disabled={!jobDescription.trim() || !selectedResumeId || Boolean(busy)} onClick={generateTargetedResume}>
-            <Sparkles size={17} /> {busy === "generate" ? "Regenerating..." : "Regenerate for Max ATS"}
-          </Button>
-          {generatedResume ? <Link to={`/resume-editor/${generatedResume.id}`}><SecondaryButton><FileText size={16} /> Open generated resume</SecondaryButton></Link> : selectedResumeId && <Link to={`/resume-editor/${selectedResumeId}`}><SecondaryButton><FileText size={16} /> Open resume</SecondaryButton></Link>}
-          <Link to="/upload-resume"><SecondaryButton>Upload resume</SecondaryButton></Link>
-        </div>
-        {success && <p className="mt-3 text-sm text-rx-green">{success}</p>}
-        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-      </Card>
-      <Card title="Match & Rejection Risks">
+      </section>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.7fr)]">
+        <Card title="1. Paste Job Description">
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block text-sm font-medium">
+              Resume
+              <select className="mt-1 h-10 w-full rounded-md border border-rx-line bg-white px-3 text-sm" value={selectedResumeId} onChange={(event) => setSelectedResumeId(event.target.value)}>
+                <option value="">Select a resume</option>
+                {resumes.map((resume) => <option key={resume.id} value={resume.id}>{resume.title}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm font-medium">
+              Resume design
+              <select className="mt-1 h-10 w-full rounded-md border border-rx-line bg-white px-3 text-sm" value={templateId} onChange={(event) => chooseTemplate(event.target.value as ResumeTemplateId)}>
+                {resumeTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <Textarea className="mt-4 min-h-[330px]" placeholder="Paste the full job description here. First click Analyze Role to see the role summary and required skills, then Generate Optimized Resume." value={jobDescription} onChange={(event) => setJobDescription(event.target.value)} />
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button disabled={!jobDescription.trim() || !selectedResumeId || Boolean(busy)} onClick={analyze}><Search size={17} /> {busy === "analyze" ? "Analyzing..." : "Analyze Role"}</Button>
+            <Button className="bg-rx-green hover:bg-emerald-700" disabled={!jobDescription.trim() || !selectedResumeId || Boolean(busy)} onClick={generateTargetedResume}>
+              <Sparkles size={17} /> {busy === "generate" ? "Generating..." : "Generate Optimized Resume"}
+            </Button>
+            <Link to="/upload-resume"><SecondaryButton>Upload resume</SecondaryButton></Link>
+          </div>
+          {success && <p className="mt-3 text-sm text-rx-green">{success}</p>}
+          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+        </Card>
+
+        <Card title="2. Role Summary & Skills">
+          {!jobAnalysis && <p className="text-sm text-rx-muted">Click Analyze Role to see what this job is asking for before generating the new resume.</p>}
+          {jobAnalysis && (
+            <div className="space-y-4">
+              <div className="rounded-md bg-blue-50 p-3">
+                <p className="text-xs font-medium uppercase text-blue-700">Target resume title</p>
+                <p className="mt-1 text-lg font-bold text-rx-ink">{jobAnalysis.job_title || "Role title not detected"}</p>
+                <p className="mt-1 text-sm text-slate-700">{roleSummary(jobAnalysis)}</p>
+              </div>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">Skills Needed</h3>
+                <div className="flex flex-wrap gap-2">{neededSkills(jobAnalysis).map((skill) => <Badge key={skill}>{skill}</Badge>)}</div>
+              </div>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">Role Responsibilities</h3>
+                <ul className="space-y-2 text-sm text-slate-700">
+                  {jobAnalysis.responsibilities.slice(0, 4).map((item) => <li className="rounded-md bg-slate-50 p-2" key={item}>{item}</li>)}
+                </ul>
+              </div>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">Recruiter Expectations</h3>
+                <ul className="space-y-2 text-sm text-slate-700">
+                  {jobAnalysis.hidden_recruiter_expectations.map((item) => <li className="flex gap-2" key={item}><CheckCircle2 className="mt-0.5 shrink-0 text-rx-green" size={16} />{item}</li>)}
+                </ul>
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,0.75fr)_minmax(0,1fr)]">
+      <Card title="3. ATS Score Before / After">
         {!activeScore && <p className="text-sm text-rx-muted">Paste a job description to see the current match score, blockers, keyword gaps, and recruiter rejection risks.</p>}
         {activeScore && (
           <div className="space-y-5">
@@ -214,50 +257,59 @@ export function JobMatchPage() {
           </div>
         )}
       </Card>
-    </div>
-    {jobAnalysis && (
-      <Card title="Job Description Explanation">
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-3 text-sm">
-            <p><strong>Target title:</strong> {jobAnalysis.job_title || "Role title not detected"}</p>
-            <p><strong>Seniority:</strong> {jobAnalysis.seniority_level}</p>
-            <p><strong>Domain:</strong> {jobAnalysis.domain}</p>
-            <div>
-              <h3 className="mb-2 font-semibold">Required Skills</h3>
-              <div className="flex flex-wrap gap-2">{jobAnalysis.required_skills.map((skill) => <Badge key={skill}>{skill}</Badge>)}</div>
-            </div>
-            <div>
-              <h3 className="mb-2 font-semibold">Hidden Recruiter Expectations</h3>
-              <ul className="space-y-2">{jobAnalysis.hidden_recruiter_expectations.map((item) => <li className="rounded-md bg-slate-50 p-2" key={item}>{item}</li>)}</ul>
-            </div>
-          </div>
-          <div>
-            <h3 className="mb-2 font-semibold">Why The Generated Resume Matches Better</h3>
+
+      <Card title="4. Why The New Resume Matches">
+        {!generatedResume && <p className="text-sm text-rx-muted">After generation, this panel explains exactly what changed: title, skills, keywords, formatting, and role alignment.</p>}
+        {generatedResume && (
+          <div className="space-y-4">
             <ul className="space-y-2 text-sm">
               {matchReasons(generatedResume, afterScore, beforeScore).map((reason) => <li className="flex gap-2" key={reason}><CheckCircle2 className="mt-0.5 shrink-0 text-rx-green" size={16} />{reason}</li>)}
             </ul>
+            <div className="flex flex-wrap gap-3">
+              <Link to={`/resume-editor/${generatedResume.id}`}><Button><FileText size={16} /> Edit Generated Resume</Button></Link>
+              <Link to={`/download/${generatedResume.id}`}><SecondaryButton><Download size={16} /> Download</SecondaryButton></Link>
+            </div>
           </div>
-        </div>
+        )}
       </Card>
-    )}
-    {beforeResume && generatedResume && (
-      <Card title="Before / After Generated Resume">
-        <div className="mb-4 flex flex-wrap gap-3">
-          <Link to={`/resume-editor/${generatedResume.id}`}><Button>Open Generated Resume</Button></Link>
-          <Link to={`/download/${generatedResume.id}`}><SecondaryButton>Download Generated Resume</SecondaryButton></Link>
-        </div>
-        <div className="grid gap-5 xl:grid-cols-2">
-          <div>
-            <p className="mb-2 text-sm font-semibold">Before</p>
-            <ResumePreview resume={beforeResume.parsed_json} templateId={templateId} />
+      </div>
+
+      <Card title="5. Resume Before / After">
+        {!currentBeforeResume && <p className="text-sm text-rx-muted">Upload or select a resume to preview it here.</p>}
+        {currentBeforeResume && (
+          <div className="grid gap-5 xl:grid-cols-2">
+            <div>
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm font-semibold">Before</p>
+                {beforeScore && <Badge tone={beforeScore.overall_score >= 75 ? "green" : "amber"}>{beforeScore.overall_score} ATS</Badge>}
+              </div>
+              <ResumePreview resume={currentBeforeResume.parsed_json} templateId={templateId} />
+            </div>
+            <div>
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm font-semibold">After</p>
+                {afterScore && <Badge tone="green">{afterScore.overall_score} ATS</Badge>}
+              </div>
+              {generatedResume ? (
+                <ResumePreview resume={generatedResume.parsed_json} templateId={templateId} />
+              ) : (
+                <div className="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-rx-line bg-white p-8 text-center text-sm text-rx-muted">
+                  The optimized resume appears here after you click Generate Optimized Resume.
+                </div>
+              )}
+            </div>
           </div>
-          <div>
-            <p className="mb-2 text-sm font-semibold">After</p>
-            <ResumePreview resume={generatedResume.parsed_json} templateId={templateId} />
-          </div>
-        </div>
+        )}
       </Card>
-    )}
+    </div>
+  );
+}
+
+function StepBadge({ active, label, detail }: { active: boolean; label: string; detail: string }) {
+  return (
+    <div className={`rounded-md p-3 ${active ? "bg-emerald-50 text-emerald-800" : "bg-slate-50 text-slate-600"}`}>
+      <strong className="block text-rx-ink">{label}</strong>
+      <span className="line-clamp-1">{detail}</span>
     </div>
   );
 }
@@ -282,4 +334,16 @@ function matchReasons(resume: ResumeRecord | null, after: AtsScore | null, befor
   if (after?.matched_keywords?.length) reasons.push(`Matched keywords now visible: ${after.matched_keywords.slice(0, 8).join(", ")}.`);
   if (resume?.parsed_json?.suggested_projects?.length) reasons.push("Relevant GitHub project ideas are shown separately so you can build them before adding them as completed projects.");
   return reasons;
+}
+
+function neededSkills(analysis: JobAnalysis) {
+  return [...analysis.required_skills, ...analysis.preferred_skills].filter((skill, index, list) => skill && list.indexOf(skill) === index).slice(0, 18);
+}
+
+function roleSummary(analysis: JobAnalysis) {
+  const title = analysis.job_title || "This role";
+  const level = analysis.seniority_level ? `${analysis.seniority_level.toLowerCase()} ` : "";
+  const domain = analysis.domain && analysis.domain !== "General Technology" ? ` in ${analysis.domain.toLowerCase()}` : "";
+  const skills = neededSkills(analysis).slice(0, 5).join(", ");
+  return `${title} is a ${level}role${domain} focused on ${analysis.responsibilities[0] || "delivering role-specific technical work"}. The resume should emphasize ${skills || "the required tools, responsibilities, and business impact"}.`;
 }
