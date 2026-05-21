@@ -738,8 +738,9 @@ def _targeted_keywords(resume: dict, job_analysis: dict) -> list[str]:
     required = job_analysis.get("required_skills", [])
     preferred = job_analysis.get("preferred_skills", [])
     tools = job_analysis.get("tools", [])
-    supported = _supported_jd_keywords(resume, required + preferred + tools)
-    return _unique([keyword for keyword in supported + required[:10] + tools[:8] + preferred[:6] if _highlightable_keyword(keyword)])[:24]
+    technologies = job_analysis.get("technologies", [])
+    supported = _supported_jd_keywords(resume, required + preferred + tools + technologies)
+    return _unique([keyword for keyword in supported + required + tools + preferred + technologies if _highlightable_keyword(keyword)])[:80]
 
 
 def _highlightable_keyword(keyword: str) -> bool:
@@ -1282,7 +1283,7 @@ def _mark_generated_targeted_resume(resume: dict, job_description: str) -> None:
 
 
 def _starts_with_action(text: str) -> bool:
-    return bool(re.match(r"(?i)^(architected|engineered|built|created|developed|improved|designed|implemented|optimized|integrated|orchestrated|streamlined|scaled|analyzed|managed|automated|delivered|supported|owned|led|reduced)", text))
+    return bool(re.match(r"(?i)^(architected|engineered|built|created|developed|improved|designed|implemented|optimized|integrated|orchestrated|streamlined|scaled|analyzed|managed|automated|delivered|supported|owned|led|reduced|organized|modeled|containerized|documented|exposed)", text))
 
 
 def _capitalize(text: str) -> str:
@@ -1508,6 +1509,8 @@ def _recruiter_realism_pass(resume: dict, job_analysis: dict) -> None:
 
 def _recruiter_safe_sentence(text: str, job_analysis: dict, index: int) -> str:
     clean = _remove_ai_tone(_clean_generated_sentence(text.rstrip(".")))
+    clean = re.sub(r"(?i)^built app\b", "Built role-aligned workflow application", clean)
+    clean = re.sub(r"(?i)^built dashboards\b", "Built operational dashboards", clean)
     clean = re.sub(r"(?i)\busing\s+([A-Za-z0-9+#./ -]+,\s*){2,}[A-Za-z0-9+#./ -]+", "with role-relevant tooling", clean)
     clean = re.sub(r"(?i)\b(millions|thousands|40%|50%|100%)\b", "high-volume" if index % 2 else "measurable", clean)
     copied = _copied_jd_fragments(clean, job_analysis)
@@ -1515,7 +1518,62 @@ def _recruiter_safe_sentence(text: str, job_analysis: dict, index: int) -> str:
         clean = clean.replace(fragment, _job_alignment_context(job_analysis, index))
     if len(clean.split()) < 8:
         clean = f"{clean} for {_job_alignment_context(job_analysis, index)}, improving {_role_impact_phrase(job_analysis, index)}"
+    clean = _add_impact_number(clean, job_analysis, index)
     return _restore_acronyms(clean).rstrip(" .") + "."
+
+
+def _add_impact_number(text: str, job_analysis: dict, index: int) -> str:
+    if re.search(r"\b\d+[%x]?\b|\$|hours?|minutes?|seconds?|days?|weeks?", text, re.I):
+        return text
+    metric = _metric_phrase(job_analysis, index)
+    base = text.rstrip(" .")
+    if re.search(r"(?i)\b(improving|reducing|accelerating|increasing|supporting|enabling)\b", base):
+        return f"{base}, helping to {metric}"
+    return f"{base}, helping to {metric}"
+
+
+def _metric_phrase(job_analysis: dict, index: int) -> str:
+    family = _role_family(job_analysis)
+    metrics = {
+        "solutions_architecture": [
+            "reduce implementation ambiguity by 30%",
+            "shorten technical discovery cycles by 25%",
+            "improve stakeholder handoff clarity by 35%",
+            "reduce integration rework by 20%",
+        ],
+        "ai_engineering": [
+            "reduce manual review effort by 35%",
+            "improve retrieval review speed by 30%",
+            "cut repetitive analysis time by 40%",
+            "increase workflow traceability by 25%",
+        ],
+        "platform_engineering": [
+            "reduce deployment friction by 30%",
+            "improve release consistency by 35%",
+            "cut troubleshooting time by 25%",
+            "increase operational visibility by 40%",
+        ],
+        "product_frontend": [
+            "reduce user workflow friction by 25%",
+            "improve task completion speed by 30%",
+            "increase interface consistency by 35%",
+            "cut API handoff issues by 20%",
+        ],
+        "analytics": [
+            "reduce manual reporting effort by 40%",
+            "improve data review speed by 30%",
+            "increase KPI visibility by 35%",
+            "cut recurring analysis time by 25%",
+        ],
+        "software_engineering": [
+            "reduce manual support effort by 30%",
+            "improve service reliability by 25%",
+            "cut operational review time by 35%",
+            "increase delivery visibility by 30%",
+        ],
+    }
+    options = metrics.get(family, metrics["software_engineering"])
+    return options[index % len(options)]
 
 
 def _copied_jd_fragments(text: str, job_analysis: dict) -> list[str]:

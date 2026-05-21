@@ -10,18 +10,18 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
     <article className={cn("resume-paper mx-auto min-h-[1050px] max-w-[780px] bg-white p-10 text-[13px] leading-5 text-slate-900", template.className)}>
       <header className="border-b border-slate-300 pb-3 text-center">
         <h1 className="text-2xl font-bold tracking-normal">{p.name || "Your Name"}</h1>
-        {headline && <p className="mt-1 text-sm font-semibold text-slate-700">{highlightKeywords(headline, resume.target_keywords)}</p>}
+        {headline && <p className="mt-1 text-sm font-semibold text-slate-700">{headline}</p>}
         <p className="mt-1 text-xs text-slate-600">
           {[p.email, p.phone, p.location, p.linkedin, p.github, p.portfolio].filter(Boolean).join(" | ")}
         </p>
       </header>
       <ResumeSection title="Summary">
-        <p>{highlightKeywords(resume.summary || "A concise, role-targeted summary will appear here.", resume.target_keywords)}</p>
+        <p>{resume.summary || "A concise, role-targeted summary will appear here."}</p>
       </ResumeSection>
       <ResumeSection title="Technical Skills">
         <div className="space-y-1 skill-lines">
           {orderedSkillEntries(resume.skills).map(([group, values]) => (
-            <p key={group}><strong>{label(group)}:</strong> {highlightKeywords(values.join(", "), resume.target_keywords)}</p>
+            <p key={group}><strong>{label(group)}:</strong> {values.join(", ")}</p>
           ))}
         </div>
       </ResumeSection>
@@ -172,7 +172,7 @@ function keywordHighlights(keywords: string[] = []) {
       return isAcronym || isUsefulPhrase || keyword.length >= 4;
     })
     .sort((a, b) => b.length - a.length)
-    .slice(0, 18);
+    .slice(0, 80);
 }
 
 function escapeRegExp(value: string) {

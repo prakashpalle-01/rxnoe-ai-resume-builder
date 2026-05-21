@@ -1,4 +1,5 @@
 from datetime import date
+import re
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import delete, select
@@ -134,14 +135,16 @@ def resume_versions(resume_id: int, db: Session = Depends(get_db), user: User = 
 @router.post("/resumes/{resume_id}/export/pdf")
 def export_pdf(resume_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     resume = _resume_or_404(resume_id, user.id, db)
-    return Response(content=build_pdf(resume.parsed_json), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="rxnoe-resume-{resume.id}.pdf"'})
+    filename = _resume_filename(resume.parsed_json, "pdf")
+    return Response(content=build_pdf(resume.parsed_json), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.get("/resumes/{resume_id}/export/docx")
 @router.post("/resumes/{resume_id}/export/docx")
 def export_docx(resume_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     resume = _resume_or_404(resume_id, user.id, db)
-    return Response(content=build_docx(resume.parsed_json), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f'attachment; filename="rxnoe-resume-{resume.id}.docx"'})
+    filename = _resume_filename(resume.parsed_json, "docx")
+    return Response(content=build_docx(resume.parsed_json), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.post("/jobs/analyze")
@@ -227,6 +230,21 @@ def _resume_or_404(resume_id: int, user_id: int, db: Session) -> UploadedResume:
 def _delete_resume_dependents(resume_id: int, db: Session) -> None:
     for model in (ParsedResume, ResumeVersion, AtsScore, KeywordAnalysis, CoverLetter):
         db.execute(delete(model).where(model.resume_id == resume_id))
+
+
+def _resume_filename(resume_json: dict, extension: str) -> str:
+    personal = resume_json.get("personal_info", {}) if isinstance(resume_json, dict) else {}
+    name_parts = [part for part in re.split(r"\s+", personal.get("name", "").strip()) if part]
+    first = name_parts[0] if name_parts else "FirstName"
+    last = name_parts[-1] if len(name_parts) > 1 else "LastName"
+    role = resume_json.get("target_title") or (resume_json.get("experience") or [{}])[0].get("title") or "Resume"
+    today = date.today().isoformat()
+    return "_".join([_filename_part(first), _filename_part(last), _filename_part(role), today]) + f".{extension}"
+
+
+def _filename_part(value: str) -> str:
+    clean = re.sub(r"[^A-Za-z0-9]+", "_", str(value)).strip("_")
+    return clean or "Resume"
 
 
 def _is_targeted_generation(payload: OptimizeRequest) -> bool:

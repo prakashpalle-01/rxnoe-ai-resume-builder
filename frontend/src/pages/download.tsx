@@ -2,6 +2,7 @@ import { Download, Edit3, FileText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
+import { resumeDownloadName } from "../lib/utils";
 import { Button, Card, SecondaryButton } from "../components/ui";
 import { ResumePreview } from "../components/resume-preview";
 import type { ResumeRecord } from "../types/resume";
@@ -17,12 +18,12 @@ export function DownloadPage() {
   }, [id]);
 
   async function exportFile(type: "pdf" | "docx") {
-    if (!id) return;
+    if (!id || !resume) return;
     const response = await api.get(`/resumes/${id}/export/${type}`, { responseType: "blob" });
     const url = URL.createObjectURL(response.data);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `rxnoe-resume-${id}.${type}`;
+    link.download = resumeDownloadName(resume.parsed_json, type);
     link.click();
     URL.revokeObjectURL(url);
   }

@@ -4,6 +4,7 @@ import { Bot, Check, Download, RefreshCw, RotateCcw, Save, Search, Sparkles, X }
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
+import { resumeDownloadName } from "../lib/utils";
 import { applyLocalCommand, generateSuggestions, getEditableTargets, scoreResumeLocally, textToSkills, type ChatMessage, type LocalEditResult } from "../lib/local-resume-engine";
 import { Button, Card, SecondaryButton, Textarea, Badge, ProgressBar } from "../components/ui";
 import { ResumePreview } from "../components/resume-preview";
@@ -152,7 +153,7 @@ export function ResumeEditorPage() {
     const url = URL.createObjectURL(response.data);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `rxnoe-resume-${id}.${type}`;
+    link.download = resumeDownloadName(draftResume, type);
     link.click();
     URL.revokeObjectURL(url);
   }
