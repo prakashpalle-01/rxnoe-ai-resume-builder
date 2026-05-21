@@ -1,12 +1,12 @@
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models.models import ApplicationTracker, AtsScore, CoverLetter, InterviewQuestion, JobDescription, ParsedResume, ResumeVersion, UploadedResume, User
+from app.models.models import ApplicationTracker, AtsScore, CoverLetter, InterviewQuestion, JobDescription, KeywordAnalysis, ParsedResume, ResumeVersion, UploadedResume, User
 from app.schemas.schemas import ApplicationCreate, ApplicationOut, AtsScoreRequest, AuthRequest, CoverLetterRequest, InterviewRequest, JobAnalyzeRequest, JobRankRequest, OptimizeRequest, ResumeOut, ResumeUpdate, ResumeVersionOut, TokenResponse
 from app.services.ai_service import analyze_job_description, generate_cover_letter, generate_interview_questions, optimize_resume, parse_resume
 from app.services.export_service import build_docx, build_pdf
@@ -70,9 +70,13 @@ def update_resume(resume_id: int, payload: ResumeUpdate, db: Session = Depends(g
 @router.delete("/resumes/{resume_id}")
 def delete_resume(resume_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     resume = _resume_or_404(resume_id, user.id, db)
-    remove_file(resume.file_path)
+    file_path = resume.file_path
+    _delete_resume_dependents(resume.id, db)
     db.delete(resume)
     db.commit()
+    still_used = db.scalar(select(UploadedResume.id).where(UploadedResume.file_path == file_path, UploadedResume.user_id == user.id))
+    if not still_used:
+        remove_file(file_path)
     return {"ok": True}
 
 
@@ -218,6 +222,11 @@ def _resume_or_404(resume_id: int, user_id: int, db: Session) -> UploadedResume:
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found.")
     return resume
+
+
+def _delete_resume_dependents(resume_id: int, db: Session) -> None:
+    for model in (ParsedResume, ResumeVersion, AtsScore, KeywordAnalysis, CoverLetter):
+        db.execute(delete(model).where(model.resume_id == resume_id))
 
 
 def _is_targeted_generation(payload: OptimizeRequest) -> bool:
