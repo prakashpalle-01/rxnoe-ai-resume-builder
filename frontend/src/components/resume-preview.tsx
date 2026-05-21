@@ -7,7 +7,12 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
   const headline = resume.target_title || resume.experience?.[0]?.title;
   const template = resumeTemplates.find((item) => item.id === templateId) ?? resumeTemplates[0];
   let experienceBulletIndex = 0;
-  const maxExperienceHighlights = Math.max(1, Math.ceil(resume.experience.reduce((count, job) => count + job.bullets.length, 0) * 0.35));
+  let experienceHighlights = 0;
+  let projectHighlights = 0;
+  const experienceBulletCount = resume.experience.reduce((count, job) => count + job.bullets.length, 0);
+  const projectBulletCount = resume.projects.reduce((count, project) => count + project.bullets.length, 0);
+  const maxExperienceHighlights = Math.max(2, Math.ceil(experienceBulletCount * 0.35));
+  const maxProjectHighlights = Math.max(1, Math.ceil(projectBulletCount * 0.2));
   return (
     <article className={cn("resume-paper mx-auto min-h-[1050px] max-w-[780px] bg-white p-10 text-[13px] leading-5 text-slate-900", template.className)}>
       <header className="border-b border-slate-300 pb-3 text-center">
@@ -37,7 +42,9 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
             <ul className="mt-1 list-disc pl-5">
               {job.bullets.map((bullet, bulletIndex) => {
                 const globalIndex = experienceBulletIndex++;
-                return <li key={bulletIndex}>{highlightBullet(bullet, resume.target_keywords, globalIndex, maxExperienceHighlights)}</li>;
+                const rendered = highlightBullet(bullet, resume.target_keywords, globalIndex, experienceHighlights < maxExperienceHighlights);
+                if (rendered.highlighted) experienceHighlights += 1;
+                return <li key={bulletIndex}>{rendered.node}</li>;
               })}
             </ul>
           </div>
@@ -51,7 +58,11 @@ export function ResumePreview({ resume, templateId = defaultTemplateId }: { resu
               {project.technologies.length > 0 && <span className="text-xs text-slate-600"> | {project.technologies.join(", ")}</span>}
               {project.url && <span className="text-xs text-slate-600"> | {project.url}</span>}
               <ul className="mt-1 list-disc pl-5">
-                {project.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{bullet}</li>)}
+                {project.bullets.map((bullet, bulletIndex) => {
+                  const rendered = highlightBullet(bullet, resume.target_keywords, bulletIndex, projectHighlights < maxProjectHighlights);
+                  if (rendered.highlighted) projectHighlights += 1;
+                  return <li key={bulletIndex}>{rendered.node}</li>;
+                })}
               </ul>
             </div>
           ))}
@@ -118,28 +129,49 @@ function orderedSkillEntries(skills: ResumeJson["skills"]) {
     .filter(([, values]) => values.length > 0);
 }
 
-function highlightBullet(text: string, keywords: string[] = [], bulletIndex = 0, maxHighlights = 2) {
-  if (bulletIndex >= maxHighlights * 2) return text;
+function highlightBullet(text: string, keywords: string[] = [], bulletIndex = 0, canHighlight = true): { node: React.ReactNode; highlighted: boolean } {
+  if (!canHighlight) return { node: text, highlighted: false };
   const metric = text.match(/\b(?:reduced|improved|increased|cut|shortened|accelerated|processed|saved|lowered|raised)[^.;,]*?\b\d+%|\b\d+[%x]\b/iu)?.[0];
-  const phrase = metric || (bulletIndex % 4 === 0 ? firstKeywordMatch(text, keywords) : "");
-  if (!phrase) return text;
+  const phrase = metric || firstKeywordMatch(text, keywords) || keyConceptMatch(text, bulletIndex);
+  if (!phrase) return { node: text, highlighted: false };
   const index = text.toLowerCase().indexOf(phrase.toLowerCase());
-  if (index < 0) return text;
-  return (
-    <>
-      {text.slice(0, index)}
-      <strong>{text.slice(index, index + phrase.length)}</strong>
-      {text.slice(index + phrase.length)}
-    </>
-  );
+  if (index < 0) return { node: text, highlighted: false };
+  return {
+    highlighted: true,
+    node: (
+      <>
+        {text.slice(0, index)}
+        <strong>{text.slice(index, index + phrase.length)}</strong>
+        {text.slice(index + phrase.length)}
+      </>
+    )
+  };
 }
 
 function firstKeywordMatch(text: string, keywords: string[] = []) {
-  const important = keywordHighlights(keywords).slice(0, 24);
+  const important = keywordHighlights(keywords).slice(0, 30);
   return important.find((keyword) => {
     const pattern = new RegExp(`(^|[^A-Za-z0-9+#./-])${escapeRegExp(keyword)}(?=$|[^A-Za-z0-9+#./-])`, "i");
     return pattern.test(text);
   }) || "";
+}
+
+function keyConceptMatch(text: string, bulletIndex: number) {
+  if (bulletIndex % 3 !== 0) return "";
+  return [
+    "cloud-native",
+    "event-driven",
+    "AI-powered",
+    "reimbursement workflows",
+    "document intelligence",
+    "deployment workflows",
+    "operational dashboards",
+    "retrieval workflows",
+    "API documentation",
+    "data quality",
+    "release automation",
+    "observability"
+  ].find((phrase) => text.toLowerCase().includes(phrase.toLowerCase())) || "";
 }
 
 function keywordHighlights(keywords: string[] = []) {

@@ -1463,6 +1463,7 @@ def _resume_ready_project(project: dict) -> dict:
 
 def _project_bullet_to_resume_style(bullet: str) -> str:
     text = bullet.strip().rstrip(".")
+    text = re.sub(r"(?i)\band deploy them\b", "and deployed them", text)
     replacements = {
         r"(?i)^build\s+": "Built ",
         r"(?i)^create\s+": "Created ",
@@ -1516,6 +1517,7 @@ def _recruiter_realism_pass(resume: dict, job_analysis: dict) -> None:
             bullet_index += 1
         project["bullets"] = cleaned
     resume["projects"] = _dedupe_projects_by_name(resume.get("projects", []))
+    _reduce_project_redundancy(resume, job_analysis)
     _remove_repetitive_sentence_shapes(resume, job_analysis)
 
 
@@ -1559,9 +1561,6 @@ def _add_impact_number(text: str, job_analysis: dict, index: int) -> str:
 
 def _planning_or_collaboration_bullet(text: str) -> bool:
     return bool(re.search(r"(?i)\b(collaborated|partnered|coordinated|aligned|planned|planning|requirements|discovery|handoff|communication|tradeoff|stakeholder)\b", text))
-    if re.search(r"(?i)\b(improving|reducing|accelerating|increasing|supporting|enabling)\b", base):
-        return f"{base}; {outcome}"
-    return f"{base}; {outcome}"
 
 
 def _impact_outcome_phrase(job_analysis: dict, index: int) -> str:
@@ -1673,6 +1672,99 @@ def _copied_jd_fragments(text: str, job_analysis: dict) -> list[str]:
     return _unique(copied)[:4]
 
 
+def _reduce_project_redundancy(resume: dict, job_analysis: dict) -> None:
+    global_fingerprints: list[set[str]] = []
+    for project_index, project in enumerate(resume.get("projects", [])):
+        kept: list[str] = []
+        fingerprints: list[set[str]] = []
+        for bullet in project.get("bullets", []):
+            fingerprint = _project_bullet_fingerprint(bullet)
+            if any(_fingerprint_overlap(fingerprint, existing) >= 0.55 for existing in fingerprints):
+                continue
+            if any(_fingerprint_overlap(fingerprint, existing) >= 0.65 for existing in global_fingerprints):
+                continue
+            if _project_bullet_angle(bullet) in [_project_bullet_angle(item) for item in kept]:
+                continue
+            kept.append(bullet)
+            fingerprints.append(fingerprint)
+            global_fingerprints.append(fingerprint)
+            if len(kept) >= 2:
+                break
+        while len(kept) < min(2, len(project.get("bullets", [])) or 2):
+            candidate = _project_angle_bullet(project, job_analysis, project_index + len(kept))
+            fingerprint = _project_bullet_fingerprint(candidate)
+            if not any(_fingerprint_overlap(fingerprint, existing) >= 0.5 for existing in fingerprints + global_fingerprints):
+                kept.append(candidate)
+                fingerprints.append(fingerprint)
+                global_fingerprints.append(fingerprint)
+            else:
+                break
+        project["bullets"] = kept[:2]
+    resume["projects"] = _rank_projects_for_role(resume.get("projects", []), job_analysis)[:3]
+
+
+def _project_bullet_fingerprint(text: str) -> set[str]:
+    stop = {
+        "the", "and", "for", "with", "into", "that", "using", "through", "across", "from",
+        "improving", "improved", "support", "supported", "supporting", "created", "built",
+        "designed", "engineered", "organized", "documented", "workflow", "workflows", "system",
+        "systems", "project", "platform", "service", "services"
+    }
+    return {word for word in re.findall(r"[a-z0-9+#./-]+", text.lower()) if len(word) > 3 and word not in stop}
+
+
+def _fingerprint_overlap(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0
+    return len(left & right) / max(len(left), len(right))
+
+
+def _project_bullet_angle(text: str) -> str:
+    lower = text.lower()
+    if any(word in lower for word in ["deploy", "release", "rollback", "ci/cd", "environment"]):
+        return "delivery"
+    if any(word in lower for word in ["observability", "monitor", "health", "debug", "troubleshoot"]):
+        return "observability"
+    if any(word in lower for word in ["data", "sql", "kpi", "dashboard", "report"]):
+        return "analytics"
+    if any(word in lower for word in ["api", "integration", "documentation", "openapi"]):
+        return "integration"
+    if any(word in lower for word in ["rag", "retrieval", "prompt", "model", "ai", "llm"]):
+        return "ai"
+    return "architecture"
+
+
+def _project_angle_bullet(project: dict, job_analysis: dict, index: int) -> str:
+    family = _role_family(job_analysis)
+    tech = _human_join(project.get("technologies", [])[:3]) if project.get("technologies") else "role-relevant tooling"
+    if family == "ai_engineering":
+        options = [
+            f"Implemented retrieval evaluation checkpoints with {tech} to compare response quality before release.",
+            f"Added traceable AI workflow stages so document processing behavior could be reviewed and improved.",
+        ]
+    elif family == "platform_engineering":
+        options = [
+            f"Added deployment health checks and rollback notes with {tech} to support cleaner production releases.",
+            f"Connected service monitoring signals to release review so operational issues were easier to isolate.",
+        ]
+    elif family == "analytics":
+        options = [
+            f"Modeled KPI definitions and data-quality checks with {tech} to make reporting assumptions easier to audit.",
+            f"Built dashboard-ready query outputs so recurring business questions could be reviewed without manual cleanup.",
+        ]
+    elif family == "solutions_architecture":
+        options = [
+            f"Mapped API dependencies and rollout assumptions with {tech} to reduce ambiguity before implementation.",
+            f"Created integration notes that helped engineering teams compare delivery risks and system tradeoffs.",
+        ]
+    else:
+        options = [
+            f"Structured API and validation paths with {tech} to make operational behavior easier to maintain.",
+            f"Documented service boundaries and failure-handling assumptions to improve production-readiness review.",
+        ]
+    return options[index % len(options)]
+
+
 def _remove_repetitive_sentence_shapes(resume: dict, job_analysis: Optional[dict] = None) -> None:
     bullets = []
     owners = []
@@ -1715,7 +1807,40 @@ def _avoid_repeated_ending(
     percent = re.search(r"\b\d+%\b", base)
     if percent:
         used_percentages.add(percent.group(0))
-    return base.rstrip(" .") + "."
+    return _restore_acronyms(base.rstrip(" .")) + "."
+
+
+def _rank_projects_for_role(projects: list[dict], job_analysis: dict) -> list[dict]:
+    family = _role_family(job_analysis)
+    priority_terms = {
+        "platform_engineering": ["deployment", "ci/cd", "cloud", "kubernetes", "observability", "platform", "orchestration"],
+        "ai_engineering": ["ai", "rag", "llm", "document", "retrieval", "model", "intelligence"],
+        "solutions_architecture": ["integration", "readiness", "architecture", "api", "cloud", "implementation"],
+        "analytics": ["analytics", "kpi", "data", "dashboard", "reporting", "intelligence"],
+        "product_frontend": ["product", "workflow", "dashboard", "react", "frontend", "user"],
+        "software_engineering": ["api", "service", "automation", "backend", "microservice", "platform"],
+    }.get(family, ["api", "service", "automation"])
+    negative_name_terms = {
+        "platform_engineering": ["analytics", "kpi", "dashboard", "reporting", "business intelligence"],
+        "ai_engineering": ["ci/cd", "deployment orchestrator", "analytics kpi"],
+        "solutions_architecture": ["kpi", "dashboard", "model monitoring"],
+        "analytics": ["ci/cd", "deployment", "kubernetes"],
+        "product_frontend": ["ci/cd", "model monitoring"],
+    }.get(family, [])
+    def score(project: dict) -> int:
+        name = project.get("name", "").lower()
+        text = " ".join([
+            project.get("name", ""),
+            " ".join(project.get("technologies", [])),
+            " ".join(project.get("bullets", [])),
+        ]).lower()
+        value = sum(4 for term in priority_terms if term in name) + sum(2 for term in priority_terms if term in text) + min(len(project.get("bullets", [])), 2)
+        if any(term in name for term in negative_name_terms):
+            value -= 10
+        return value
+    ranked = sorted(projects, key=score, reverse=True)
+    positive = [project for project in ranked if score(project) > 1]
+    return positive or ranked
 
 
 def _avoid_repeated_stem(base: str, job_analysis: dict, index: int, used_stems: set[str]) -> str:
