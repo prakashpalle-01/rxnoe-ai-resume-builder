@@ -81,6 +81,7 @@ export type AtsScore = {
   project_relevance_score: number;
   formatting_score: number;
   readability_score: number;
+  recruiter_realism_score?: number;
   missing_keywords: string[];
   matched_keywords: string[];
   confirm_before_adding?: string[];

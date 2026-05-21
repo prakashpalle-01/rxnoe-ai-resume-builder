@@ -29,6 +29,7 @@ Important rules:
 - If metrics are missing, improve clarity without fabricating numbers.
 - Preserve truth while improving presentation.
 - Use recruiter-style language.
+- Align to the role without copying job-description phrases directly.
 - Avoid repetitive sentence structure. Do not repeat the same action verb more than twice.
 - Mention technologies only when they directly support the achievement or architecture.
 - Avoid comma-list endings and keyword stuffing.
@@ -62,8 +63,8 @@ Role + Years Experience + Core Technologies + Domain + Business Value.
 Keep summaries 3-5 lines max with a strong technical identity and no fluff.
 
 Experience bullet formula:
-Action Verb + What Was Built + Technology + Business/Technical Impact.
-Use outcome-driven, problem-focused, engineering-oriented language.
+Action + System + Business Problem + Impact.
+Use outcome-driven, problem-focused, engineering-oriented language. Avoid weak bullets like "Built dashboards" or "Developed APIs."
 
 Final rule:
 Do not optimize for looking impressive. Optimize for recruiter trust, ATS readability, interview conversion, technical credibility, and clear impact.
@@ -164,13 +165,13 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     job_analysis = analyze_job_description(job_description or "")
     jd_keywords = job_analysis.get("keywords", extract_keywords(job_description or ""))
     summary = optimized.get("summary") or ""
-    top_skills = _rank_user_skills(_all_skills(optimized), jd_keywords)
+    top_skills = _rank_role_skills(_all_skills(optimized), jd_keywords, job_analysis)
     optimized["skills"] = _categorize_skills(_blend_job_skills(_all_skills(optimized), job_analysis), jd_keywords)
     if job_analysis.get("job_title"):
-        optimized["target_title"] = job_analysis["job_title"]
+        optimized["target_title"] = _credible_target_title(optimized, job_analysis)
     optimized["target_keywords"] = _targeted_keywords(optimized, job_analysis)
     if should_target or "summary" in instruction.lower() or not summary:
-        optimized["summary"] = _summary(optimized, optimized["target_keywords"] or top_skills, job_analysis.get("job_title", ""), job_analysis)
+        optimized["summary"] = _summary(optimized, optimized["target_keywords"] or top_skills, optimized.get("target_title") or job_analysis.get("job_title", ""), job_analysis)
     for job in optimized.get("experience", []):
         job["bullets"] = _rewrite_bullets(job.get("bullets", []), top_skills, optimized["target_keywords"], job_analysis)
     for project in optimized.get("projects", []):
@@ -182,6 +183,7 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     optimized["projects"] = _add_relevant_projects(optimized.get("projects", []), optimized["suggested_projects"])
     optimized["summary"] = _remove_ai_tone(optimized["summary"])
     _humanize_resume(optimized)
+    _recruiter_realism_pass(optimized, job_analysis)
     return optimized, "Improved summary, experience, and project bullets with recruiter-style language, verified skills, clearer impact, and ATS alignment without adding fake claims."
 
 
@@ -197,6 +199,11 @@ Rules:
 - Rewrite weak bullets using action + work + technology + business/technical impact.
 - Avoid repetitive action verbs; never repeat the same verb more than twice.
 - Do not keyword-stuff comma-separated technologies into bullet endings.
+- Do not copy job-description phrases directly; translate them into natural resume language.
+- Use Action + System + Business Problem + Impact for bullets.
+- Prioritize skills by target role. Solutions architecture emphasizes stakeholders, integration, architecture communication, Agile, and cloud systems. AI engineering emphasizes RAG, LLM systems, vector databases, orchestration, and automation.
+- Avoid overinflated target titles when the candidate lacks leadership or architecture ownership evidence.
+- Run a recruiter realism check before final JSON: believable, human, not overstated, not keyword-heavy, not copied from the JD.
 - Write problem-focused, architecture-aware bullets with clear outcomes.
 - Keep the resume human, concise, recruiter-readable, and ATS-safe.
 - Use single-column sections: Header, Professional Summary, Technical Skills, Professional Experience, Projects, Education, Certifications.
@@ -748,8 +755,12 @@ def _highlightable_keyword(keyword: str) -> bool:
 
 
 def _blend_job_skills(user_skills: list[str], job_analysis: dict) -> list[str]:
+    family = _role_family(job_analysis)
     jd_skills = job_analysis.get("required_skills", []) + job_analysis.get("tools", []) + job_analysis.get("preferred_skills", [])[:6]
-    return _unique([skill for skill in user_skills + jd_skills if _valid_skill(skill)])
+    if family == "solutions_architecture":
+        low_level_ai = {"ann", "cnn", "rnn", "lstm", "bert", "gans", "lora", "qlora", "kv-cache", "semantic caching"}
+        jd_skills = [skill for skill in jd_skills if _keyword_key(skill) not in low_level_ai]
+    return _unique([skill for skill in _role_priority_terms(job_analysis) + user_skills + jd_skills if _valid_skill(skill)])
 
 
 def _resume_keyword_text(resume: dict) -> str:
@@ -839,15 +850,17 @@ def _summary_value_line(job_analysis: dict, skills: list[str]) -> str:
         job_analysis.get("domain", ""),
         " ".join(job_analysis.get("job_duties", [])[:4]),
     ]).lower()
-    if any(word in lower for word in ["healthcare", "claim", "reimbursement", "clinical", "revenue cycle"]):
+    if _contains_phrase(lower, ["solution architect", "solutions architect", "solutions engineer"]):
+        return "Brings a practical architecture style that connects stakeholder needs, integration decisions, cloud constraints, and delivery tradeoffs."
+    if _contains_phrase(lower, ["healthcare", "claim", "reimbursement", "clinical", "revenue cycle"]):
         return "Brings a practical engineering style to healthcare workflows, balancing clean APIs, reliable data handling, and readable systems that operations teams can trust."
-    if any(word in lower for word in ["platform", "devops", "kubernetes", "terraform", "sre", "observability"]):
+    if _contains_phrase(lower, ["platform", "devops", "kubernetes", "terraform", "sre", "observability"]):
         return "Brings a practical engineering style to platform work, balancing automation, reliability, observability, and clear delivery habits."
-    if any(word in lower for word in ["analytics", "dashboard", "bi", "report", "kpi", "data analyst"]):
+    if _contains_phrase(lower, ["analytics", "dashboard", "bi", "report", "kpi", "data analyst"]):
         return "Brings a practical analytics style that turns messy requirements into clean data workflows, readable dashboards, and decisions teams can act on."
-    if any(word in lower for word in ["frontend", "react", "component", "ui", "user experience"]):
+    if _contains_phrase(lower, ["frontend", "react", "component", "ui", "user experience"]):
         return "Brings a practical product mindset to frontend work, connecting clean interfaces with dependable APIs and user workflows."
-    if any(word in lower for word in ["ai", "ml", "llm", "rag", "machine learning", "model"]):
+    if _contains_phrase(lower, ["ai", "ml", "llm", "rag", "machine learning", "model"]):
         return "Brings a practical AI engineering style, connecting model workflows, APIs, data quality, and production reliability."
     if focus:
         return f"Brings a practical engineering style to {focus}, with emphasis on clear implementation and dependable delivery."
@@ -866,6 +879,8 @@ def _summary_focus(job_analysis: dict) -> str:
     text = " ".join(duties[:4]).lower()
     if _contains_phrase(text, ["developer platform", "terraform", "kubernetes", "ci/cd", "observability", "incident"]):
         return "developer platforms, cloud automation, observability, and reliable delivery pipelines"
+    if _contains_phrase(text, ["stakeholder", "requirements", "solution architect", "solutions architect", "integration", "architecture"]):
+        return "requirements discovery, system integration, architecture communication, and delivery tradeoffs"
     if _contains_phrase(text, ["dashboard", "kpi", "report", "stakeholder", "insight", "analytics"]):
         return "analytics workflows, KPI reporting, stakeholder visibility, and data-backed decisions"
     if _contains_phrase(text, ["model", "ml", "pipeline", "drift", "monitor", "sagemaker"]):
@@ -901,6 +916,8 @@ def _contains_phrase(text: str, phrases: list[str]) -> bool:
 
 def _target_domain(target_title: str) -> str:
     title = target_title.lower()
+    if "solution" in title and "architect" in title:
+        return "solutions architecture"
     if "frontend" in title:
         return "frontend engineering"
     if "backend" in title or "software" in title:
@@ -912,6 +929,81 @@ def _target_domain(target_title: str) -> str:
     if "data" in title:
         return "data and analytics"
     return ""
+
+
+def _role_family(job_analysis: dict) -> str:
+    text = " ".join([
+        job_analysis.get("job_title", ""),
+        job_analysis.get("domain", ""),
+        " ".join(job_analysis.get("keywords", [])),
+        " ".join(job_analysis.get("job_duties", []) or job_analysis.get("responsibilities", [])),
+    ]).lower()
+    if _contains_phrase(text, ["solutions architect", "solution architect", "solutions engineer", "pre-sales", "presales"]):
+        return "solutions_architecture"
+    if _contains_phrase(text, ["ai engineer", "genai", "generative ai", "llm", "rag", "machine learning"]):
+        return "ai_engineering"
+    if _contains_phrase(text, ["platform engineer", "sre", "site reliability", "devops", "kubernetes", "terraform"]):
+        return "platform_engineering"
+    if _contains_phrase(text, ["frontend", "react", "product engineer", "ui", "component"]):
+        return "product_frontend"
+    if _contains_phrase(text, ["data analyst", "business intelligence", "analytics", "dashboard", "kpi"]):
+        return "analytics"
+    return "software_engineering"
+
+
+def _role_priority_terms(job_analysis: dict) -> list[str]:
+    family = _role_family(job_analysis)
+    priorities = {
+        "solutions_architecture": ["Stakeholder Management", "Requirements Gathering", "System Integration", "Architecture", "Cloud", "AWS", "Agile", "APIs", "Communication", "Leadership"],
+        "ai_engineering": ["RAG", "LLM", "Generative AI", "Vector Embeddings", "AI Agents", "LangChain", "OpenAI APIs", "FastAPI", "Python", "PostgreSQL"],
+        "platform_engineering": ["Kubernetes", "Docker", "Terraform", "CI/CD", "AWS", "GitHub Actions", "Prometheus", "Grafana", "OpenTelemetry", "Linux"],
+        "product_frontend": ["React", "TypeScript", "JavaScript", "APIs", "React Query", "Redux", "HTML5", "CSS3", "Figma", "Accessibility"],
+        "analytics": ["SQL", "PostgreSQL", "Power BI", "Tableau", "Excel", "Python", "Data Analysis", "ETL", "Snowflake", "KPI Reporting"],
+        "software_engineering": ["Python", "Java", "TypeScript", "FastAPI", "Spring Boot", "APIs", "Microservices", "PostgreSQL", "AWS", "Docker"],
+    }
+    return priorities.get(family, priorities["software_engineering"])
+
+
+def _rank_role_skills(user_skills: list[str], jd_keywords: list[str], job_analysis: dict) -> list[str]:
+    priority = _role_priority_terms(job_analysis)
+    ranked_source = _unique(priority + jd_keywords + user_skills)
+    supported = [skill for skill in ranked_source if _valid_skill(skill)]
+    return _rank_user_skills(supported, jd_keywords)
+
+
+def _credible_target_title(resume: dict, job_analysis: dict) -> str:
+    title = job_analysis.get("job_title", "")
+    if not title:
+        return ""
+    lower = title.lower()
+    if "solution" in lower and "architect" in lower and not _has_architect_evidence(resume):
+        if _years_experience(resume) < 5:
+            return "Software Engineer - Solutions Architecture"
+        return "Solutions Engineer"
+    if re.search(r"\b(principal|staff|lead)\b", lower) and not _has_leadership_evidence(resume):
+        return re.sub(r"(?i)\b(principal|staff|lead)\s+", "Senior ", title).strip()
+    return title
+
+
+def _has_architect_evidence(resume: dict) -> bool:
+    pieces = []
+    for job in resume.get("experience", []):
+        pieces.extend([job.get("title", ""), job.get("company", "")])
+        pieces.extend(job.get("bullets", []))
+    for project in resume.get("projects", []):
+        pieces.append(project.get("name", ""))
+        pieces.extend(project.get("bullets", []))
+    text = " ".join(str(piece) for piece in pieces if piece).lower()
+    return _contains_phrase(text, ["architecture", "stakeholder", "integration", "requirements", "roadmap", "governance", "solution design"])
+
+
+def _has_leadership_evidence(resume: dict) -> bool:
+    pieces = []
+    for job in resume.get("experience", []):
+        pieces.extend([job.get("title", ""), job.get("company", "")])
+        pieces.extend(job.get("bullets", []))
+    text = " ".join(str(piece) for piece in pieces if piece).lower()
+    return _contains_phrase(text, ["led", "mentored", "owned", "architecture", "roadmap", "stakeholder", "cross-functional"])
 
 
 def _rewrite_bullets(
@@ -940,11 +1032,12 @@ def _rewrite_bullet(
     tech = next((item for item in skills if _valid_skill(item) and item.lower() in clean.lower()), None)
     context = _job_alignment_context(job_analysis or {}, index)
     if len(clean.split()) < 6:
-        tool_text = f" using {tech}" if tech and _keyword_key(tech) not in clean.lower() else ""
+        tool_text = f" with {tech}" if tech and _keyword_key(tech) not in clean.lower() else ""
+        impact = _role_impact_phrase(job_analysis or {}, index)
         if _starts_with_action(clean):
-            clean = f"{_capitalize(clean)}{tool_text} to support {context}"
+            clean = f"{_capitalize(clean)}{tool_text} for {context}, improving {impact}"
         else:
-            clean = f"{fallback_verb} {clean.lower()}{tool_text} to support {context}"
+            clean = f"{fallback_verb} {clean.lower()}{tool_text} for {context}, improving {impact}"
     elif not _starts_with_action(clean):
         clean = f"{fallback_verb} {clean[0].lower() + clean[1:]}"
     clean = _attach_job_context(clean, job_analysis or {}, index)
@@ -952,7 +1045,7 @@ def _rewrite_bullet(
 
 
 def _job_alignment_context(job_analysis: dict, index: int = 0) -> str:
-    duties = _duty_fragments(job_analysis)
+    duties = _translated_role_contexts(job_analysis) or _duty_fragments(job_analysis)
     focus = _summary_focus(job_analysis)
     if duties:
         duty = _plain_focus_phrase(duties[index % len(duties)]).strip(".")
@@ -962,6 +1055,43 @@ def _job_alignment_context(job_analysis: dict, index: int = 0) -> str:
         return focus
     title = job_analysis.get("job_title") or "role"
     return f"{title.lower()} delivery, reliability, and business workflows"
+
+
+def _role_impact_phrase(job_analysis: dict, index: int = 0) -> str:
+    family = _role_family(job_analysis)
+    impact = {
+        "solutions_architecture": ["implementation clarity", "stakeholder confidence", "integration planning", "delivery tradeoff visibility"],
+        "ai_engineering": ["retrieval quality", "automation reliability", "model workflow visibility", "production readiness"],
+        "platform_engineering": ["release reliability", "operational visibility", "deployment consistency", "incident response"],
+        "product_frontend": ["user flow clarity", "interface reliability", "product delivery speed", "API-backed usability"],
+        "analytics": ["reporting accuracy", "decision visibility", "data quality", "stakeholder confidence"],
+        "software_engineering": ["service reliability", "delivery quality", "operational visibility", "maintainability"],
+    }
+    options = impact.get(family, impact["software_engineering"])
+    return options[index % len(options)]
+
+
+def _translated_role_contexts(job_analysis: dict) -> list[str]:
+    text = " ".join([
+        job_analysis.get("job_title", ""),
+        job_analysis.get("domain", ""),
+        " ".join(job_analysis.get("job_duties", []) or job_analysis.get("responsibilities", [])),
+        " ".join(job_analysis.get("keywords", [])),
+    ]).lower()
+    contexts: list[str] = []
+    if _contains_phrase(text, ["solutions architect", "solution architect", "stakeholder", "requirements", "integration"]):
+        contexts.extend(["solution discovery workflows", "system integration planning", "architecture decision records", "stakeholder-facing delivery plans"])
+    if _contains_phrase(text, ["healthcare", "claim", "claims", "reimbursement", "revenue cycle"]):
+        contexts.extend(["healthcare operations workflows", "claims review visibility", "reimbursement process quality", "traceable operational decisions"])
+    if _contains_phrase(text, ["platform", "sre", "terraform", "kubernetes", "observability", "ci/cd"]):
+        contexts.extend(["developer platform services", "release automation", "Kubernetes workload reliability", "observability and incident response"])
+    if _contains_phrase(text, ["analytics", "dashboard", "bi", "reporting", "kpi"]):
+        contexts.extend(["KPI reporting workflows", "data quality review", "stakeholder dashboard visibility", "analytics decision support"])
+    if _contains_phrase(text, ["ai", "ml", "llm", "rag", "model"]):
+        contexts.extend(["AI workflow delivery", "retrieval quality review", "model-backed automation", "production AI operations"])
+    if _contains_phrase(text, ["frontend", "react", "component", "ui"]):
+        contexts.extend(["user-facing product workflows", "component reuse", "API-backed interface behavior", "frontend delivery quality"])
+    return _unique(contexts)[:8]
 
 
 def _duty_fragments(job_analysis: dict) -> list[str]:
@@ -1000,10 +1130,11 @@ def _attach_job_context(text: str, job_analysis: dict, index: int = 0) -> str:
     context = _job_alignment_context(job_analysis, index)
     lower = text.lower()
     if context and not any(word in lower for word in context.lower().split()[:3]):
+        impact = _role_impact_phrase(job_analysis, index)
         endings = [
-            f" for {context}",
-            f" supporting {context}",
-            f" aligned with {context}",
+            f" for {context}, improving {impact}",
+            f" supporting {context} and clearer {impact}",
+            f" aligned with {context} and practical {impact}",
         ]
         return text.rstrip(".") + endings[index % len(endings)]
     return text
@@ -1207,6 +1338,16 @@ def _suggest_projects_for_gap(jd_keywords: list[str], resume: dict, job_analysis
     domain = job_analysis.get("domain", "")
     text = " ".join(missing + jd_keywords + [title, domain] + duties).lower()
     suggestions = []
+    if _contains_phrase(text, ["solutions architect", "solution architect", "solutions engineer", "stakeholder", "requirements", "integration"]):
+        suggestions.append({
+            "name": "Enterprise Integration Readiness Platform",
+            "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"aws", "apis", "rest", "sql", "postgresql", "docker", "openapi", "swagger"}],
+            "bullets": [
+                "Designed a solution assessment workflow that connects stakeholder requirements, API dependencies, and implementation risks into a clear delivery plan.",
+                "Modeled integration touchpoints and cloud constraints so engineering teams could compare tradeoffs before build decisions.",
+                "Created architecture notes, API documentation, and rollout assumptions to improve handoff quality across technical and business teams."
+            ]
+        })
     if _contains_phrase(text, ["healthcare", "claim", "claims", "reimbursement", "clinical", "revenue cycle", "payer"]):
         suggestions.append({
             "name": "AI-Driven Revenue Cycle Optimization Platform",
@@ -1326,6 +1467,7 @@ def _project_bullet_to_resume_style(bullet: str) -> str:
         r"(?i)^document\s+": "Documented ",
         r"(?i)^expose\s+": "Exposed ",
         r"(?i)^show\s+": "Showed ",
+        r"(?i)^model\s+": "Modeled ",
     }
     for pattern, replacement in replacements.items():
         text = re.sub(pattern, replacement, text)
@@ -1352,6 +1494,88 @@ def _humanize_resume(resume: dict) -> None:
     for (owner, index, _), bullet in zip(all_bullets, varied):
         owner["bullets"][index] = bullet
     resume["skills"] = _categorize_skills(_all_skills(resume), resume.get("target_keywords", []))
+
+
+def _recruiter_realism_pass(resume: dict, job_analysis: dict) -> None:
+    for job in resume.get("experience", []):
+        job["bullets"] = [_recruiter_safe_sentence(bullet, job_analysis, index) for index, bullet in enumerate(job.get("bullets", []))]
+    for project in resume.get("projects", []):
+        project["name"] = _business_project_name(project.get("name", ""), job_analysis)
+        project["bullets"] = [_recruiter_safe_sentence(bullet, job_analysis, index) for index, bullet in enumerate(project.get("bullets", []))]
+    resume["projects"] = _dedupe_projects_by_name(resume.get("projects", []))
+    _remove_repetitive_sentence_shapes(resume)
+
+
+def _recruiter_safe_sentence(text: str, job_analysis: dict, index: int) -> str:
+    clean = _remove_ai_tone(_clean_generated_sentence(text.rstrip(".")))
+    clean = re.sub(r"(?i)\busing\s+([A-Za-z0-9+#./ -]+,\s*){2,}[A-Za-z0-9+#./ -]+", "with role-relevant tooling", clean)
+    clean = re.sub(r"(?i)\b(millions|thousands|40%|50%|100%)\b", "high-volume" if index % 2 else "measurable", clean)
+    copied = _copied_jd_fragments(clean, job_analysis)
+    for fragment in copied:
+        clean = clean.replace(fragment, _job_alignment_context(job_analysis, index))
+    if len(clean.split()) < 8:
+        clean = f"{clean} for {_job_alignment_context(job_analysis, index)}, improving {_role_impact_phrase(job_analysis, index)}"
+    return _restore_acronyms(clean).rstrip(" .") + "."
+
+
+def _copied_jd_fragments(text: str, job_analysis: dict) -> list[str]:
+    copied = []
+    lower = text.lower()
+    for duty in job_analysis.get("job_duties", []) or job_analysis.get("responsibilities", []):
+        words = re.findall(r"[A-Za-z0-9+#./-]+", duty)
+        for size in range(7, 3, -1):
+            for index in range(0, max(len(words) - size + 1, 0)):
+                phrase = " ".join(words[index:index + size])
+                if len(phrase) > 20 and phrase.lower() in lower:
+                    copied.append(phrase)
+    return _unique(copied)[:4]
+
+
+def _remove_repetitive_sentence_shapes(resume: dict) -> None:
+    bullets = []
+    owners = []
+    for job in resume.get("experience", []):
+        for index, bullet in enumerate(job.get("bullets", [])):
+            owners.append((job, index))
+            bullets.append(bullet)
+    for project in resume.get("projects", []):
+        for index, bullet in enumerate(project.get("bullets", [])):
+            owners.append((project, index))
+            bullets.append(bullet)
+    varied = _enforce_verb_variety(bullets)
+    for (owner, index), bullet in zip(owners, varied):
+        owner["bullets"][index] = bullet
+
+
+def _business_project_name(name: str, job_analysis: dict) -> str:
+    branded = _brand_project_name(name)
+    if branded != name:
+        return branded
+    family = _role_family(job_analysis)
+    lower = name.lower()
+    if any(generic in lower for generic in ["todo", "crud", "dashboard app", "job tracker", "technical project"]):
+        replacements = {
+            "solutions_architecture": "Enterprise Integration Readiness Platform",
+            "ai_engineering": "AI-Powered Operations Intelligence Platform",
+            "platform_engineering": "Enterprise Deployment Orchestration Platform",
+            "product_frontend": "Product Workflow Intelligence Dashboard",
+            "analytics": "Operational Analytics Intelligence System",
+            "software_engineering": "API-Driven Operations Automation Platform",
+        }
+        return replacements.get(family, "API-Driven Operations Automation Platform")
+    return branded
+
+
+def _dedupe_projects_by_name(projects: list[dict]) -> list[dict]:
+    seen = set()
+    result = []
+    for project in projects:
+        key = _keyword_key(project.get("name", ""))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(project)
+    return result[:5]
 
 
 def _brand_project_name(name: str) -> str:

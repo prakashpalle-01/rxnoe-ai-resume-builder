@@ -15,8 +15,9 @@ def score_resume(resume: dict, raw_text: str, job_description: str) -> dict:
     project_score = 80 if resume.get("projects") else 45
     formatting_score, formatting_warnings = _formatting_score(resume_text, resume)
     readability_score = _readability_score(resume_text)
+    realism_score, realism_warnings = _recruiter_realism_score(resume, analysis, job_description)
     overall = round((keyword_score * 0.25) + (skills_score * 0.18) + (experience_score * 0.18) + (title_score * 0.12) + (project_score * 0.1) + (formatting_score * 0.1) + (readability_score * 0.07))
-    warnings = formatting_warnings + _quality_warnings(resume, missing, overall)
+    warnings = formatting_warnings + _quality_warnings(resume, missing, overall) + realism_warnings
     result = {
         "overall_score": overall,
         "keyword_match_score": _clamp(keyword_score),
@@ -26,6 +27,7 @@ def score_resume(resume: dict, raw_text: str, job_description: str) -> dict:
         "project_relevance_score": project_score,
         "formatting_score": formatting_score,
         "readability_score": readability_score,
+        "recruiter_realism_score": realism_score,
         "missing_keywords": missing[:15],
         "matched_keywords": matched[:20],
         "confirm_before_adding": _confirm_before_adding(missing, resume),
@@ -62,6 +64,7 @@ def _perfect_generated_score(result: dict, keywords: list[str], unsupported: lis
         "project_relevance_score": 100,
         "formatting_score": 100,
         "readability_score": 100,
+        "recruiter_realism_score": max(result.get("recruiter_realism_score", 90), 92),
         "missing_keywords": [],
         "matched_keywords": keywords[:20],
         "confirm_before_adding": confirm_items,
@@ -146,6 +149,63 @@ def _readability_score(raw_text: str) -> int:
     if avg <= 26:
         return 74
     return 58
+
+
+def _recruiter_realism_score(resume: dict, analysis: dict, job_description: str) -> tuple[int, list[str]]:
+    warnings = []
+    score = 94
+    bullets = [bullet for job in resume.get("experience", []) for bullet in job.get("bullets", [])]
+    bullets.extend([bullet for project in resume.get("projects", []) for bullet in project.get("bullets", [])])
+    verbs = [re.match(r"^([A-Za-z]+)\b", bullet).group(1).lower() for bullet in bullets if re.match(r"^([A-Za-z]+)\b", bullet)]
+    repeated = {verb for verb in verbs if verbs.count(verb) > 2}
+    if repeated:
+        score -= 10
+        warnings.append(f"Recruiter realism: repeated action verbs detected ({', '.join(sorted(repeated)[:3])}).")
+    if _keyword_stuffing_ratio(resume) > 0.22:
+        score -= 12
+        warnings.append("Recruiter realism: resume may feel keyword-heavy. Keep technologies tied to work and impact.")
+    copied = _copied_job_phrases(resume, job_description)
+    if copied:
+        score -= 14
+        warnings.append("Recruiter realism: some wording appears copied from the job description. Paraphrase it into your own engineering impact.")
+    if _overstated_title(resume, analysis):
+        score -= 12
+        warnings.append("Recruiter realism: target title may overstate architecture or leadership scope for the visible experience.")
+    if bullets and not any(re.search(r"\b(reduced|improved|automated|supported|enabled|increased|accelerated|simplified|stabilized|saved)\b", bullet, re.I) for bullet in bullets):
+        score -= 8
+        warnings.append("Recruiter realism: bullets need clearer business or operational impact.")
+    return _clamp(score), warnings[:5]
+
+
+def _keyword_stuffing_ratio(resume: dict) -> float:
+    text = _resume_content_text(resume)
+    words = re.findall(r"\b[A-Za-z][A-Za-z+#./-]*\b", text)
+    if not words:
+        return 0
+    techish = [word for word in words if re.search(r"[A-Z+#./-]", word) or word.lower() in {"python", "react", "docker", "kubernetes", "terraform", "postgresql", "fastapi", "aws", "sql"}]
+    return len(techish) / len(words)
+
+
+def _copied_job_phrases(resume: dict, job_description: str) -> list[str]:
+    resume_text = _resume_content_text(resume)
+    jd_words = re.findall(r"[A-Za-z0-9+#./-]+", job_description.lower())
+    copied = []
+    for size in range(8, 4, -1):
+        for index in range(0, max(len(jd_words) - size + 1, 0)):
+            phrase = " ".join(jd_words[index:index + size])
+            if len(phrase) > 24 and phrase in resume_text:
+                copied.append(phrase)
+                if len(copied) >= 3:
+                    return copied
+    return copied
+
+
+def _overstated_title(resume: dict, analysis: dict) -> bool:
+    title = (resume.get("target_title") or analysis.get("job_title") or "").lower()
+    if not re.search(r"\b(principal|staff|lead|architect)\b", title):
+        return False
+    text = _resume_content_text(resume)
+    return not re.search(r"\b(led|owned|architected|stakeholder|roadmap|mentored|governance|architecture|integration)\b", text)
 
 
 def _quality_warnings(resume: dict, missing: list[str], overall: int) -> list[str]:

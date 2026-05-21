@@ -222,7 +222,8 @@ export function JobMatchPage() {
               ["Title relevance", activeScore.title_relevance_score],
               ["Projects", activeScore.project_relevance_score],
               ["Formatting", activeScore.formatting_score],
-              ["Readability", activeScore.readability_score]
+              ["Readability", activeScore.readability_score],
+              ["Recruiter realism", activeScore.recruiter_realism_score ?? 90]
             ].map(([label, value]) => (
               <div key={label as string}>
                 <div className="mb-1 flex justify-between text-sm"><span>{label}</span><strong>{value}</strong></div>
