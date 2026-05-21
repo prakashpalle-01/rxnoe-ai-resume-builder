@@ -170,15 +170,15 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
         optimized["target_title"] = job_analysis["job_title"]
     optimized["target_keywords"] = _targeted_keywords(optimized, job_analysis)
     if should_target or "summary" in instruction.lower() or not summary:
-        optimized["summary"] = _summary(optimized, optimized["target_keywords"] or top_skills, job_analysis.get("job_title", ""))
+        optimized["summary"] = _summary(optimized, optimized["target_keywords"] or top_skills, job_analysis.get("job_title", ""), job_analysis)
     for job in optimized.get("experience", []):
-        job["bullets"] = _rewrite_bullets(job.get("bullets", []), top_skills, optimized["target_keywords"])
+        job["bullets"] = _rewrite_bullets(job.get("bullets", []), top_skills, optimized["target_keywords"], job_analysis)
     for project in optimized.get("projects", []):
         project_skills = _rank_user_skills(project.get("technologies", []) + top_skills, jd_keywords)
-        project["bullets"] = _rewrite_bullets(project.get("bullets", []), project_skills)
+        project["bullets"] = _rewrite_bullets(project.get("bullets", []), project_skills, optimized["target_keywords"], job_analysis)
     if should_target:
         _mark_generated_targeted_resume(optimized, job_description or "")
-    optimized["suggested_projects"] = _suggest_projects_for_gap(jd_keywords, optimized)
+    optimized["suggested_projects"] = _suggest_projects_for_gap(jd_keywords, optimized, job_analysis)
     optimized["projects"] = _add_relevant_projects(optimized.get("projects", []), optimized["suggested_projects"])
     optimized["summary"] = _remove_ai_tone(optimized["summary"])
     _humanize_resume(optimized)
@@ -794,19 +794,97 @@ def _categorize_skills(skills: list[str], jd_keywords: Optional[list[str]] = Non
     return {key: _unique(values)[:12] for key, values in result.items()}
 
 
-def _summary(resume: dict, ranked_skills: list[str], target_title: str = "") -> str:
+def _summary(resume: dict, ranked_skills: list[str], target_title: str = "", job_analysis: Optional[dict] = None) -> str:
     title = target_title or (resume.get("experience", [{}])[0].get("title", "professional") if resume.get("experience") else "professional")
     years_label = _experience_label(resume)
-    skills = ", ".join(_summary_skills(ranked_skills))
-    domain = _target_domain(target_title) or _resume_domain(resume)
+    skills_list = _summary_skills(ranked_skills)
+    skills = _human_join(skills_list)
+    domain = _target_domain(target_title) or _target_domain_from_job(job_analysis or {}) or _resume_domain(resume)
+    focus = _summary_focus(job_analysis or {})
     years_text = f" with {years_label} of experience" if years_label else " with experience"
-    skill_text = f" across {skills}" if skills else ""
+    skill_text = f" working with {skills}" if skills else ""
     domain_text = f" in {domain}" if domain else ""
-    return f"{title}{years_text}{domain_text}{skill_text}. Builds scalable products, APIs, automation workflows, and data-driven features that improve reliability, delivery quality, and operational efficiency. Strong at turning business requirements into clear, maintainable, recruiter-readable technical impact."
+    focus_text = f" Focused on {focus}." if focus else ""
+    value = _summary_value_line(job_analysis or {}, skills_list)
+    return f"{title}{years_text}{domain_text}{skill_text}.{focus_text} {value}".strip()
 
 
 def _summary_skills(skills: list[str]) -> list[str]:
     return _dedupe_related_keywords([skill for skill in skills if _valid_skill(skill) and _keyword_key(skill) not in GENERIC_KEYWORDS])[:5]
+
+
+def _human_join(values: list[str]) -> str:
+    values = [value for value in values if value]
+    if len(values) <= 2:
+        return " and ".join(values)
+    return ", ".join(values[:-1]) + f", and {values[-1]}"
+
+
+def _summary_value_line(job_analysis: dict, skills: list[str]) -> str:
+    focus = _summary_focus(job_analysis)
+    lower = " ".join([
+        job_analysis.get("job_title", ""),
+        job_analysis.get("domain", ""),
+        " ".join(job_analysis.get("job_duties", [])[:4]),
+    ]).lower()
+    if any(word in lower for word in ["healthcare", "claim", "reimbursement", "clinical", "revenue cycle"]):
+        return "Brings a practical engineering style to healthcare workflows, balancing clean APIs, reliable data handling, and readable systems that operations teams can trust."
+    if any(word in lower for word in ["platform", "devops", "kubernetes", "terraform", "sre", "observability"]):
+        return "Brings a practical engineering style to platform work, balancing automation, reliability, observability, and clear delivery habits."
+    if any(word in lower for word in ["analytics", "dashboard", "bi", "report", "kpi", "data analyst"]):
+        return "Brings a practical analytics style that turns messy requirements into clean data workflows, readable dashboards, and decisions teams can act on."
+    if any(word in lower for word in ["frontend", "react", "component", "ui", "user experience"]):
+        return "Brings a practical product mindset to frontend work, connecting clean interfaces with dependable APIs and user workflows."
+    if any(word in lower for word in ["ai", "ml", "llm", "rag", "machine learning", "model"]):
+        return "Brings a practical AI engineering style, connecting model workflows, APIs, data quality, and production reliability."
+    if focus:
+        return f"Brings a practical engineering style to {focus}, with emphasis on clear implementation and dependable delivery."
+    if skills:
+        return f"Brings a practical engineering style with emphasis on {skills[0]}, clean implementation, and dependable delivery."
+    return "Brings a practical engineering style with emphasis on clear implementation, dependable delivery, and recruiter-readable impact."
+
+
+def _target_domain_from_job(job_analysis: dict) -> str:
+    domain = job_analysis.get("domain", "")
+    return "" if domain == "General Technology" else domain
+
+
+def _summary_focus(job_analysis: dict) -> str:
+    duties = job_analysis.get("job_duties") or job_analysis.get("responsibilities") or []
+    text = " ".join(duties[:4]).lower()
+    if _contains_phrase(text, ["developer platform", "terraform", "kubernetes", "ci/cd", "observability", "incident"]):
+        return "developer platforms, cloud automation, observability, and reliable delivery pipelines"
+    if _contains_phrase(text, ["dashboard", "kpi", "report", "stakeholder", "insight", "analytics"]):
+        return "analytics workflows, KPI reporting, stakeholder visibility, and data-backed decisions"
+    if _contains_phrase(text, ["model", "ml", "pipeline", "drift", "monitor", "sagemaker"]):
+        return "production ML workflows, model reliability, monitoring, and deployment readiness"
+    if _contains_phrase(text, ["api", "backend", "microservice", "distributed"]):
+        return "API design, backend workflows, and scalable service delivery"
+    if _contains_phrase(text, ["frontend", "react", "user", "component", "interface"]):
+        return "user-facing product workflows, reusable frontend systems, and clean API integration"
+    if duties:
+        return _plain_focus_phrase(duties[0])
+    return ""
+
+
+def _plain_focus_phrase(value: str) -> str:
+    clean = _clean_bullet(value).strip(".")
+    clean = re.sub(r"(?i)^responsibilities?\s*:\s*", "", clean).strip()
+    clean = re.sub(r"(?i)^(build|design|develop|manage|own|lead|collaborate|implement|optimize|automate|support|create|deliver|maintain|monitor|analyze|integrate|scale|architect|partner|improve)\s+", "", clean)
+    if not clean:
+        return ""
+    if clean[:2].isupper() or "/" in clean[:6]:
+        return clean
+    return clean[0].lower() + clean[1:]
+
+
+def _contains_phrase(text: str, phrases: list[str]) -> bool:
+    lower = text.lower()
+    for phrase in phrases:
+        pattern = re.escape(phrase.lower()).replace(r"\ ", r"[\s/-]+")
+        if re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", lower):
+            return True
+    return False
 
 
 def _target_domain(target_title: str) -> str:
@@ -824,27 +902,99 @@ def _target_domain(target_title: str) -> str:
     return ""
 
 
-def _rewrite_bullets(bullets: list[str], skills: list[str], target_keywords: Optional[list[str]] = None) -> list[str]:
+def _rewrite_bullets(
+    bullets: list[str],
+    skills: list[str],
+    target_keywords: Optional[list[str]] = None,
+    job_analysis: Optional[dict] = None,
+) -> list[str]:
     verbs = ["Architected", "Engineered", "Designed", "Optimized", "Automated", "Integrated", "Delivered", "Scaled", "Orchestrated", "Streamlined"]
     rewritten = []
     target_keywords = target_keywords or []
+    aligned_skills = _rank_user_skills(_dedupe_related_keywords(skills + target_keywords), target_keywords)
     for index, bullet in enumerate(bullets):
-        rewritten.append(_rewrite_bullet(bullet, skills, verbs[index % len(verbs)]))
+        rewritten.append(_rewrite_bullet(bullet, aligned_skills, verbs[index % len(verbs)], job_analysis, index))
     return _enforce_verb_variety(rewritten)
 
 
-def _rewrite_bullet(bullet: str, skills: list[str], fallback_verb: str) -> str:
+def _rewrite_bullet(
+    bullet: str,
+    skills: list[str],
+    fallback_verb: str,
+    job_analysis: Optional[dict] = None,
+    index: int = 0,
+) -> str:
     clean = _upgrade_action_opening(_normalize_weak_opening(_remove_ai_tone(bullet.rstrip("."))))
     tech = next((item for item in skills if _valid_skill(item) and item.lower() in clean.lower()), None)
+    context = _job_alignment_context(job_analysis or {}, index)
     if len(clean.split()) < 6:
         tool_text = f" using {tech}" if tech and _keyword_key(tech) not in clean.lower() else ""
         if _starts_with_action(clean):
-            clean = f"{_capitalize(clean)}{tool_text} to improve reliability, delivery quality, and operational visibility"
+            clean = f"{_capitalize(clean)}{tool_text} to support {context}"
         else:
-            clean = f"{fallback_verb} {clean.lower()}{tool_text} to improve reliability, delivery quality, and operational visibility"
+            clean = f"{fallback_verb} {clean.lower()}{tool_text} to support {context}"
     elif not _starts_with_action(clean):
         clean = f"{fallback_verb} {clean[0].lower() + clean[1:]}"
+    clean = _attach_job_context(clean, job_analysis or {}, index)
     return _clean_generated_sentence(_restore_acronyms(clean)) + "."
+
+
+def _job_alignment_context(job_analysis: dict, index: int = 0) -> str:
+    duties = _duty_fragments(job_analysis)
+    focus = _summary_focus(job_analysis)
+    if duties:
+        duty = _plain_focus_phrase(duties[index % len(duties)]).strip(".")
+        if duty:
+            return duty
+    if focus:
+        return focus
+    title = job_analysis.get("job_title") or "role"
+    return f"{title.lower()} delivery, reliability, and business workflows"
+
+
+def _duty_fragments(job_analysis: dict) -> list[str]:
+    source = job_analysis.get("job_duties") or job_analysis.get("responsibilities") or []
+    fragments: list[str] = []
+    for item in source:
+        pieces = re.split(r";|\n|(?<=[.])\s+|,\s+(?=(build|design|develop|manage|own|lead|collaborate|implement|optimize|automate|support|create|deliver|maintain|monitor|analyze|integrate|scale|architect|partner|improve)\b)", item, flags=re.I)
+        for piece in pieces:
+            if not piece or re.fullmatch(r"(?i)(build|design|develop|manage|own|lead|collaborate|implement|optimize|automate|support|create|deliver|maintain|monitor|analyze|integrate|scale|architect|partner|improve)", piece.strip()):
+                continue
+            clean = re.sub(r"(?i)^responsibilities?\s*:\s*", "", _clean_bullet(piece).strip(" .")).strip()
+            if re.search(r"(?i)\b(engineer|developer|analyst|architect)\b", clean) and len(clean.split()) <= 4:
+                continue
+            if 3 <= len(clean.split()) <= 18:
+                fragments.append(_restore_acronyms(clean))
+    if fragments:
+        return _unique(fragments)[:8]
+    lower = " ".join(source + [job_analysis.get("job_title", ""), job_analysis.get("domain", "")]).lower()
+    role_contexts = []
+    if _contains_phrase(lower, ["platform", "sre", "terraform", "kubernetes", "observability", "ci/cd"]):
+        role_contexts.extend(["developer platform services", "CI/CD automation", "Kubernetes workload reliability", "observability and incident response"])
+    if _contains_phrase(lower, ["analytics", "dashboard", "bi", "reporting", "kpi"]):
+        role_contexts.extend(["KPI reporting workflows", "data quality review", "stakeholder dashboard visibility", "analytics decision support"])
+    if _contains_phrase(lower, ["ai", "ml", "llm", "rag", "model"]):
+        role_contexts.extend(["AI workflow delivery", "model reliability review", "retrieval quality", "production AI operations"])
+    if _contains_phrase(lower, ["frontend", "react", "component", "ui"]):
+        role_contexts.extend(["user-facing product workflows", "component reuse", "API-backed interface behavior", "frontend delivery quality"])
+    if _contains_phrase(lower, ["healthcare", "claim", "reimbursement", "revenue cycle"]):
+        role_contexts.extend(["healthcare operations workflows", "claims review visibility", "reimbursement process quality", "traceable operational decisions"])
+    return _unique(role_contexts)[:8]
+
+
+def _attach_job_context(text: str, job_analysis: dict, index: int = 0) -> str:
+    if not job_analysis or len(text.split()) > 24:
+        return text
+    context = _job_alignment_context(job_analysis, index)
+    lower = text.lower()
+    if context and not any(word in lower for word in context.lower().split()[:3]):
+        endings = [
+            f" for {context}",
+            f" supporting {context}",
+            f" aligned with {context}",
+        ]
+        return text.rstrip(".") + endings[index % len(endings)]
+    return text
 
 
 def _enforce_verb_variety(bullets: list[str]) -> list[str]:
@@ -997,7 +1147,22 @@ def _capitalize(text: str) -> str:
 
 
 def _restore_acronyms(text: str) -> str:
-    replacements = {"apis": "APIs", "api": "API", "sql": "SQL", "aws": "AWS", "ui": "UI", "etl": "ETL", "llm": "LLM", "rag": "RAG"}
+    replacements = {
+        "apis": "APIs",
+        "api": "API",
+        "sql": "SQL",
+        "aws": "AWS",
+        "ui": "UI",
+        "etl": "ETL",
+        "llm": "LLM",
+        "rag": "RAG",
+        "ci/cd": "CI/CD",
+        "kubernetes": "Kubernetes",
+        "docker": "Docker",
+        "fastapi": "FastAPI",
+        "postgresql": "PostgreSQL",
+        "terraform": "Terraform",
+    }
     for source, target in replacements.items():
         text = re.sub(rf"\b{source}\b", target, text, flags=re.I)
     return text
@@ -1021,18 +1186,62 @@ def _dedupe_related_keywords(values: list[str]) -> list[str]:
     return result
 
 
-def _suggest_projects_for_gap(jd_keywords: list[str], resume: dict) -> list[dict]:
+def _suggest_projects_for_gap(jd_keywords: list[str], resume: dict, job_analysis: Optional[dict] = None) -> list[dict]:
+    job_analysis = job_analysis or {}
     resume_text = _resume_keyword_text(resume)
     missing = [keyword for keyword in jd_keywords if _keyword_key(keyword) not in resume_text]
-    text = " ".join(missing + jd_keywords).lower()
+    title = job_analysis.get("job_title", "")
+    duties = job_analysis.get("job_duties") or job_analysis.get("responsibilities") or []
+    domain = job_analysis.get("domain", "")
+    text = " ".join(missing + jd_keywords + [title, domain] + duties).lower()
     suggestions = []
+    if _contains_phrase(text, ["healthcare", "claim", "claims", "reimbursement", "clinical", "revenue cycle", "payer"]):
+        suggestions.append({
+            "name": "AI-Driven Revenue Cycle Optimization Platform",
+            "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"python", "fastapi", "postgresql", "sql", "aws", "llm", "rag", "apis"}],
+            "bullets": [
+                "Designed reimbursement workflow services that organize claim records, validation logic, and exception review into a clear API-driven process.",
+                "Built document and data handling paths that support cleaner operational review, traceable decisions, and healthcare workflow visibility.",
+                "Mapped job-specific requirements into resume-ready architecture notes covering APIs, data quality, automation, and reliability."
+            ]
+        })
+    if _contains_phrase(text, ["platform", "sre", "terraform", "kubernetes", "observability", "incident", "infrastructure"]):
+        suggestions.append({
+            "name": "Cloud-Native Developer Platform Automation",
+            "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"aws", "docker", "kubernetes", "terraform", "ci/cd", "github actions", "prometheus", "grafana"}],
+            "bullets": [
+                "Engineered deployment workflows with environment configuration, health checks, and rollback documentation for reliable service releases.",
+                "Integrated observability checks and release notes to make platform behavior easier to troubleshoot and support.",
+                "Organized infrastructure and CI/CD requirements into a clean project narrative aligned with developer platform responsibilities."
+            ]
+        })
+    if _contains_phrase(text, ["machine learning", "ml", "model", "drift", "sagemaker", "feature", "training pipeline"]):
+        suggestions.append({
+            "name": "Production ML Monitoring & Retrieval Intelligence System",
+            "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"python", "mlflow", "sagemaker", "aws", "postgresql", "prometheus", "grafana", "rag", "llm"}],
+            "bullets": [
+                "Designed model monitoring workflows for prediction quality, drift review, and production readiness across ML-backed services.",
+                "Built API-accessible evaluation outputs so engineering teams can inspect model behavior and operational risk.",
+                "Documented reliability, data quality, and deployment considerations that match production ML engineering expectations."
+            ]
+        })
+    if _contains_phrase(text, ["business intelligence", "bi", "dashboard", "analytics", "kpi", "reporting", "stakeholder"]):
+        suggestions.append({
+            "name": "Revenue Operations Analytics Intelligence Platform",
+            "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"sql", "postgresql", "python", "tableau", "power bi", "excel", "snowflake"}],
+            "bullets": [
+                "Created KPI datasets, SQL queries, and dashboard views that translate operational requirements into clear reporting outputs.",
+                "Analyzed data quality issues and documented business assumptions so stakeholders can trust the reporting flow.",
+                "Organized analytics deliverables around role-specific needs including metrics definitions, trends, and decision support."
+            ]
+        })
     if any(word in text for word in ["react", "typescript", "frontend"]):
         suggestions.append({
-            "name": "AI-Assisted Hiring Intelligence Dashboard",
+            "name": "AI-Assisted Product Workflow Dashboard",
             "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"react", "typescript", "javascript", "api", "apis"}],
             "bullets": [
-                "Build a responsive hiring intelligence dashboard with reusable React components, API integration, filtering, loading states, and error handling.",
-                "Document component architecture, state management, and accessibility decisions for recruiter-facing workflows."
+                "Built responsive product workflows with reusable React components, API integration, filtering, loading states, and error handling.",
+                "Documented component architecture, state management, and accessibility decisions for user-facing workflows."
             ]
         })
     if any(word in text for word in ["aws", "docker", "kubernetes", "cloud", "ci/cd"]):
@@ -1049,8 +1258,8 @@ def _suggest_projects_for_gap(jd_keywords: list[str], resume: dict) -> list[dict
             "name": "Multimodal Healthcare Document Intelligence Engine",
             "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"llm", "rag", "python", "fastapi", "postgresql"}],
             "bullets": [
-                "Build a document intelligence workflow with chunking, retrieval, prompt templates, and response evaluation for healthcare operations.",
-                "Expose retrieval workflows through APIs and document quality, latency, and failure handling for production review."
+                "Built a document intelligence workflow with chunking, retrieval, prompt templates, and response evaluation for operational review.",
+                "Exposed retrieval workflows through APIs and documented quality, latency, and failure handling for production review."
             ]
         })
     if any(word in text for word in ["sql", "postgresql", "data", "analytics", "tableau", "power bi", "forecasting"]):
