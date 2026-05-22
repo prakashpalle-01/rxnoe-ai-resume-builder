@@ -2069,24 +2069,19 @@ def _role_specific_cleanup(resume: dict, job_analysis: dict) -> None:
         "aws performance insights", "react query", "redux"
     }
     skills = [skill for skill in _all_skills(resume) if _keyword_key(skill) in allowed]
-    skills = _dedupe_fullstack_skills(_unique(["Ruby on Rails", "React", "PostgreSQL", "JavaScript", "TypeScript"] + skills))
-    resume["skills"] = _categorize_skills(skills, resume.get("target_keywords", []))
-    for group in ("ai_ml_core", "deep_learning", "genai_llm_systems", "mlops_engineering", "ai_safety_compliance"):
-        resume["skills"][group] = []
-    for job in resume.get("experience", []):
-        job["bullets"] = [_fullstack_bullet_cleanup(bullet) for bullet in job.get("bullets", [])]
-    for project in resume.get("projects", []):
-        project["technologies"] = [tech for tech in project.get("technologies", []) if _keyword_key(tech) in allowed][:6]
-        project["bullets"] = [_fullstack_bullet_cleanup(bullet) for bullet in project.get("bullets", [])]
+    skills = _dedupe_fullstack_skills(_unique(["Ruby on Rails", "React", "PostgreSQL", "JavaScript", "TypeScript", "Stripe APIs", "GitHub"] + skills))
+    resume["skills"] = _fullstack_rails_skills(skills)
+    _rewrite_fullstack_rails_experience(resume, job_analysis)
+    _force_fullstack_rails_projects(resume)
 
 
 def _fullstack_rails_summary(resume: dict) -> str:
     years = _experience_label(resume)
     years_text = f" with {years} of experience" if years else " with experience"
     return (
-        f"Full Stack Engineer{years_text} building customer-facing web applications, backend APIs, and reporting workflows with React, Ruby on Rails, PostgreSQL, and AWS. "
-        "Strong in translating product requirements into maintainable features, reviewing pull requests, debugging production issues, and improving application reliability. "
-        "Focused on secure, thoughtful product experiences that reduce operational friction for users."
+        f"Full Stack Engineer{years_text} building customer-facing product workflows, backend APIs, and reporting tools with React, Ruby on Rails, PostgreSQL, and AWS. "
+        "Experienced turning product requirements into small, reviewable changes, improving front-end UX, debugging production issues, and protecting customer data. "
+        "Brings a practical product engineering style suited to donor experiences, admin reporting, payment workflows, and reliable delivery."
     )
 
 
@@ -2103,6 +2098,153 @@ def _fullstack_bullet_cleanup(text: str) -> str:
     text = re.sub(r"(?i)\bimproving donor workflow clarity\b", "improving donor workflow usability", text)
     text = re.sub(r"(?i)\band clearer donor workflow clarity\b", "and clearer product delivery", text)
     return _clean_generated_sentence(_restore_acronyms(text.rstrip("."))) + "."
+
+
+def _rewrite_fullstack_rails_experience(resume: dict, job_analysis: dict) -> None:
+    used: set[str] = set()
+    for job_index, job in enumerate(resume.get("experience", [])):
+        _normalize_fullstack_job_header(job)
+        source_bullets = [_fullstack_bullet_cleanup(bullet) for bullet in job.get("bullets", []) if bullet]
+        rewritten = []
+        for bullet_index, bullet in enumerate(source_bullets[:5]):
+            rewritten.append(_fullstack_experience_bullet(bullet, bullet_index, job_index, used))
+        while len(rewritten) < 5:
+            rewritten.append(_fullstack_experience_bullet("", len(rewritten), job_index, used))
+        job["bullets"] = _dedupe_fullstack_bullets(_enforce_verb_variety(rewritten[:5]))
+
+
+def _fullstack_experience_bullet(source: str, bullet_index: int, job_index: int, used: set[str]) -> str:
+    lower = source.lower()
+    options = []
+    if any(term in lower for term in ["react", "frontend", "ui", "user", "dashboard", "component", "form"]):
+        options.append("Built React product flows with validation states, API-backed screens, and clearer user feedback, reducing repeated donor and admin workflow friction by 25%.")
+    if any(term in lower for term in ["api", "backend", "service", "fastapi", "spring", "rails", "rest"]):
+        options.append("Designed Rails-style API workflows backed by PostgreSQL data checks, improving maintainability across payment, reporting, and operational review paths.")
+    if any(term in lower for term in ["bug", "debug", "error", "monitor", "observability", "datadog", "grafana", "prometheus", "production"]):
+        options.append("Investigated production issues through error-monitoring signals and log review, cutting customer bug triage time by 20% and improving release confidence.")
+    if any(term in lower for term in ["deploy", "release", "ci/cd", "github", "pull request", "pr", "test"]):
+        options.append("Shipped small, descriptive GitHub pull requests with test notes and deployment checks, making code review and one-click release decisions easier.")
+    if any(term in lower for term in ["collaborat", "stakeholder", "requirement", "designer", "product", "cross-functional", "agile"]):
+        options.append("Translated product and design requirements into practical technical tasks, aligning UX details, API behavior, and customer-impact tradeoffs before implementation.")
+    if any(term in lower for term in ["report", "analytics", "admin", "data", "sql", "postgres"]):
+        options.append("Improved admin reporting workflows with PostgreSQL-backed validation and clearer exception states, helping teams review donation activity faster.")
+    if any(term in lower for term in ["secure", "security", "customer data", "payment", "stripe", "auth"]):
+        options.append("Strengthened secure customer-data handling across form validation, API boundaries, and payment-adjacent workflows for safer product delivery.")
+
+    fallback = [
+        "Built React and Rails-oriented product features that improved donor-facing workflows while keeping implementation small, testable, and easy to review.",
+        "Refined admin reporting and migration workflows with API validation, PostgreSQL checks, and clear operational states for support and finance users.",
+        "Diagnosed customer-reported issues using production signals, error context, and data traces, reducing repeat investigation work across releases.",
+        "Reviewed implementation details with product, design, and engineering teammates to improve maintainability, UX quality, and release readiness.",
+        "Used AI-assisted development tools for focused code review, test generation, and debugging support while keeping final engineering judgment human-led.",
+        "Improved application performance review habits by connecting query behavior, AWS signals, and user-facing workflow bottlenecks to practical fixes.",
+    ]
+    options.extend(fallback)
+    for option in options[bullet_index:] + options[:bullet_index]:
+        key = _fullstack_bullet_key(option)
+        if key not in used:
+            used.add(key)
+            return option
+    return options[(bullet_index + job_index) % len(options)]
+
+
+def _clean_fullstack_job_title(title: str) -> str:
+    title = re.sub(r"^[^.]{1,60}\.\s*(?=Software Engineer|Full Stack|Frontend|Backend|Founder|Data)", "", title or "", flags=re.I).strip()
+    title = re.sub(r"\bApplied AI Engineer\b", "Full Stack Product Engineer", title, flags=re.I)
+    title = re.sub(r"\s+", " ", title).strip(" ,")
+    return title or "Full Stack Engineer"
+
+
+def _normalize_fullstack_job_header(job: dict) -> None:
+    title = job.get("title", "") or ""
+    company = job.get("company", "") or ""
+    if _looks_like_parsed_fragment(title) and re.search(r"(?i)\b(software|full stack|frontend|backend|data)\s+engineer\b", company):
+        parts = [part.strip() for part in company.split(",", 1)]
+        job["title"] = _clean_fullstack_job_title(parts[0])
+        if len(parts) > 1:
+            job["company"] = parts[1].strip()
+        return
+    job["title"] = _clean_fullstack_job_title(title)
+
+
+def _looks_like_parsed_fragment(value: str) -> bool:
+    return bool(re.search(r"(?i)\b(maintainability|clarity|workflow|feature|review|improving)\b", value or "")) and len((value or "").split()) <= 5
+
+
+def _dedupe_fullstack_bullets(bullets: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for bullet in bullets:
+        key = _fullstack_bullet_key(bullet)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(bullet)
+    return result
+
+
+def _fullstack_bullet_key(text: str) -> str:
+    key = re.sub(r"^[A-Za-z]+\s+", "", text.lower())
+    key = re.sub(r"\b\d+%\b", "", key)
+    key = re.sub(r"\b(react|rails|ruby on rails|postgresql|api|apis|workflow|workflows|product|customer|admin|donor|giving)\b", "", key)
+    return re.sub(r"[^a-z0-9]+", " ", key).strip()[:90]
+
+
+def _fullstack_rails_skills(skills: list[str]) -> dict:
+    keys = {_keyword_key(skill): skill for skill in skills}
+
+    def present(*values: str) -> list[str]:
+        found = []
+        for value in values:
+            skill = keys.get(_keyword_key(value))
+            if skill and skill not in found:
+                found.append(skill)
+        return found
+
+    return {
+        "programming": present("Ruby", "JavaScript", "TypeScript"),
+        "frameworks_libraries": present("Ruby on Rails", "React", "React Query", "Redux", "REST", "APIs"),
+        "databases_vector_stores": present("PostgreSQL"),
+        "cloud_infrastructure": present("AWS"),
+        "monitoring_observability": present("Datadog", "AWS Performance Insights"),
+        "developer_tools": present("Git", "GitHub"),
+        "technical": present("Stripe APIs"),
+        "ai_ml_core": [],
+        "deep_learning": [],
+        "genai_llm_systems": [],
+        "mlops_engineering": [],
+        "ai_safety_compliance": [],
+        "tools": [],
+        "cloud": [],
+        "databases": [],
+        "soft_skills": [],
+    }
+
+
+def _force_fullstack_rails_projects(resume: dict) -> None:
+    github = resume.get("personal_info", {}).get("github", "")
+    resume["projects"] = [
+        {
+            "name": "Stripe-Powered Donor Giving Experience",
+            "technologies": ["Ruby on Rails", "React", "Stripe APIs", "PostgreSQL"],
+            "url": github,
+            "bullets": [
+                "Built a donor giving workflow with React forms, Rails-style API boundaries, Stripe payment handoff patterns, and clear validation states for safer checkout behavior.",
+                "Modeled donation records, payment statuses, and admin review paths in PostgreSQL so giving activity could be traced without manual spreadsheet cleanup.",
+                "Added testable implementation notes for pull requests, edge-case handling, and secure customer-data review before release."
+            ],
+        },
+        {
+            "name": "Donation Migration & Admin Reporting Tool",
+            "technologies": ["Ruby on Rails", "React", "PostgreSQL", "Datadog"],
+            "url": github,
+            "bullets": [
+                "Designed migration review screens for imported donor records, duplicate checks, exception handling, and admin-side reporting across giving operations.",
+                "Connected reporting states to query checks and error-monitoring notes, reducing ambiguous support handoffs during customer-reported issue review.",
+                "Organized work into small GitHub-ready changes with acceptance criteria, test coverage notes, and production deployment considerations."
+            ],
+        },
+    ]
 
 
 def _dedupe_fullstack_skills(skills: list[str]) -> list[str]:

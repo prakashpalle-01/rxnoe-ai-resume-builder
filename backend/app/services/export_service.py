@@ -1,5 +1,6 @@
 from io import BytesIO
 from html import escape
+import re
 from docx import Document
 from docx.shared import Pt
 from reportlab.lib.pagesizes import LETTER
@@ -33,6 +34,7 @@ def build_pdf(resume: dict) -> bytes:
 
     if resume.get("experience"):
         _pdf_section(story, styles, "Experience")
+        bullet_counter = 0
         for job in resume.get("experience", []):
             title = job.get("title") or "Role"
             company = job.get("company", "")
@@ -42,11 +44,13 @@ def build_pdf(resume: dict) -> bytes:
                 header += f" <font color='#475569'>{_safe(dates)}</font>"
             story.append(Paragraph(header, styles["ItemHeader"]))
             for bullet in job.get("bullets", []):
-                story.append(Paragraph(_safe(bullet), styles["ResumeBullet"], bulletText="•"))
+                story.append(Paragraph(_bullet_html(bullet, resume, bullet_counter), styles["ResumeBullet"], bulletText="•"))
+                bullet_counter += 1
             story.append(Spacer(1, 3))
 
     if resume.get("projects"):
         _pdf_section(story, styles, "Projects")
+        bullet_counter = 0
         for project in resume.get("projects", []):
             detail = " | ".join(filter(None, [", ".join(project.get("technologies", [])), project.get("url", "")]))
             header = f"<b>{_safe(project.get('name') or 'Project')}</b>"
@@ -54,7 +58,8 @@ def build_pdf(resume: dict) -> bytes:
                 header += f" <font color='#475569'>{_safe(detail)}</font>"
             story.append(Paragraph(header, styles["ItemHeader"]))
             for bullet in project.get("bullets", []):
-                story.append(Paragraph(_safe(bullet), styles["ResumeBullet"], bulletText="•"))
+                story.append(Paragraph(_bullet_html(bullet, resume, bullet_counter, project=True), styles["ResumeBullet"], bulletText="•"))
+                bullet_counter += 1
             story.append(Spacer(1, 3))
 
     _pdf_simple_list(story, styles, "Education", resume.get("education", []))
@@ -140,10 +145,10 @@ def _pdf_styles() -> dict:
         leading=11,
         textColor=colors.HexColor("#0f172a"),
         borderColor=colors.HexColor("#cbd5e1"),
-        borderWidth=0,
-        borderPadding=0,
         spaceBefore=7,
         spaceAfter=4,
+        borderWidth=0.25,
+        borderPadding=1,
     ))
     base.add(ParagraphStyle(name="Body", parent=base["Normal"], fontSize=9.3, leading=12.2, spaceAfter=3))
     base.add(ParagraphStyle(name="SkillLine", parent=base["Normal"], fontSize=9, leading=11.5, spaceAfter=1.6))
@@ -186,6 +191,68 @@ def _skill_lines(resume: dict) -> list[tuple[str, list[str]]]:
 
 def _safe(value: str) -> str:
     return escape(str(value or ""), quote=False)
+
+
+def _rich_safe(value: str) -> str:
+    parts = re.split(r"(\*\*[^*]+\*\*)", str(value or ""))
+    rendered = []
+    for part in parts:
+        if part.startswith("**") and part.endswith("**") and len(part) > 4:
+            rendered.append(f"<b>{escape(part[2:-2], quote=False)}</b>")
+        else:
+            rendered.append(escape(part, quote=False))
+    return "".join(rendered)
+
+
+def _bullet_html(value: str, resume: dict, index: int, project: bool = False) -> str:
+    text = str(value or "")
+    if "**" in text:
+        return _rich_safe(text)
+    phrase = _metric_phrase(text)
+    if not phrase and (index % 2 == 0 or project):
+        phrase = _keyword_phrase(text, resume.get("target_keywords", []))
+    if not phrase:
+        return _safe(text)
+    location = text.lower().find(phrase.lower())
+    if location < 0:
+        return _safe(text)
+    return "".join([
+        _safe(text[:location]),
+        f"<b>{_safe(text[location:location + len(phrase)])}</b>",
+        _safe(text[location + len(phrase):]),
+    ])
+
+
+def _metric_phrase(text: str) -> str:
+    match = re.search(r"\b(?:reduced|improved|increased|cut|shortened|accelerated|processed|saved|lowered|raised)[^.;,]*?\b\d+%|\b\d+[%x]\b", text, re.I)
+    return match.group(0) if match else ""
+
+
+def _keyword_phrase(text: str, keywords: list[str]) -> str:
+    blocked = {
+        "associate", "stack", "product", "skills", "required", "preferred", "development",
+        "software", "systems", "team", "business", "technical", "technology", "platform",
+        "solution", "engineer", "engineering", "developer", "role", "work", "working",
+        "collaboration", "communication", "stakeholder",
+    }
+    priority = [
+        "Ruby on Rails", "React", "Stripe APIs", "Stripe", "PostgreSQL", "Datadog",
+        "AWS Performance Insights", "AWS", "GitHub", "customer-data", "admin reporting",
+        "donor", "donation", "payment", "Rails",
+    ]
+    candidates = priority + [keyword for keyword in keywords if keyword]
+    seen = set()
+    for keyword in sorted(candidates, key=len, reverse=True):
+        clean = keyword.strip()
+        key = clean.lower()
+        if not clean or key in seen or key in blocked or len(clean) < 4:
+            continue
+        seen.add(key)
+        pattern = re.compile(rf"(?<![A-Za-z0-9+#./-]){re.escape(clean)}(?![A-Za-z0-9+#./-])", re.I)
+        match = pattern.search(text)
+        if match:
+            return text[match.start():match.end()]
+    return ""
 
 
 def _docx_section(doc: Document, title: str, lines: list[str]) -> None:
