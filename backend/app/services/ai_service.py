@@ -83,7 +83,9 @@ GENERIC_KEYWORDS = {
     "associate", "stack", "product", "skills", "required", "preferred", "qualification", "qualifications",
     "requirements", "responsibilities", "development", "software", "systems", "build", "building", "team",
     "teams", "business", "technical", "technology", "technologies", "platform", "platforms", "solutions",
-    "solution", "engineer", "engineering", "developer", "analyst", "candidate", "role", "work", "working"
+    "solution", "engineer", "engineering", "developer", "analyst", "candidate", "role", "work", "working",
+    "well-tested", "top-notch", "customer-reported", "cross-functional", "problem-solving",
+    "decision-making", "thoughtful", "humility", "iteratively", "descriptive", "fantastic"
 }
 KNOWN_KEYWORDS = [
     "Python", "Java", "JavaScript", "TypeScript", "React", "Node", "FastAPI", "Spring Boot", "SQL",
@@ -104,7 +106,8 @@ KNOWN_KEYWORDS = [
     "Databricks", "Spark", "Pandas", "NumPy", "Jupyter", "Looker", "Jenkins", "GitHub Actions",
     "GitLab CI", "Azure DevOps", "Terraform", "Ansible", "Helm", "Istio", "Nginx", "Prometheus",
     "OAuth", "SSO", "JWT", "IAM", "SOC 2", "HIPAA", "Cypress", "Jest", "Playwright", "Selenium",
-    "Postman", "Swagger", "OpenAPI", "Figma", "Jira", "Confluence", "SDLC", "TDD", "BDD"
+    "Postman", "Swagger", "OpenAPI", "Figma", "Jira", "Confluence", "SDLC", "TDD", "BDD",
+    "Stripe", "Stripe APIs", "Datadog", "AWS Performance Insights", "Ruby on Rails", "Rails"
 ]
 
 
@@ -184,6 +187,7 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     optimized["summary"] = _remove_ai_tone(optimized["summary"])
     _humanize_resume(optimized)
     _recruiter_realism_pass(optimized, job_analysis)
+    _role_specific_cleanup(optimized, job_analysis)
     return optimized, "Improved summary, experience, and project bullets with recruiter-style language, verified skills, clearer impact, and ATS alignment without adding fake claims."
 
 
@@ -268,6 +272,8 @@ def _keyword_in_text(keyword: str, lower_text: str) -> bool:
 def _looks_like_keyword(word: str) -> bool:
     lower = word.lower().strip(".")
     if lower in GENERIC_KEYWORDS or lower.endswith("-based") or len(lower) <= 4:
+        return False
+    if "-" in lower and lower not in {"front-end", "full-stack"}:
         return False
     return bool(re.search(r"[A-Z+#./-]", word[1:]) or lower in {"django", "terraform", "qdrant", "neo4j", "snowflake", "langchain", "prometheus", "grafana"})
 
@@ -758,10 +764,14 @@ def _highlightable_keyword(keyword: str) -> bool:
 def _blend_job_skills(user_skills: list[str], job_analysis: dict) -> list[str]:
     family = _role_family(job_analysis)
     jd_skills = job_analysis.get("required_skills", []) + job_analysis.get("tools", []) + job_analysis.get("preferred_skills", [])[:6]
-    if family == "solutions_architecture":
+    if family in {"solutions_architecture", "fullstack_rails"}:
         low_level_ai = {"ann", "cnn", "rnn", "lstm", "bert", "gans", "lora", "qlora", "kv-cache", "semantic caching"}
         jd_skills = [skill for skill in jd_skills if _keyword_key(skill) not in low_level_ai]
-    return _unique([skill for skill in _role_priority_terms(job_analysis) + user_skills + jd_skills if _valid_skill(skill)])
+    skills = _unique([skill for skill in _role_priority_terms(job_analysis) + user_skills + jd_skills if _valid_skill(skill)])
+    if family == "fullstack_rails":
+        demote = {"rag", "llm", "ai agents", "langchain", "prompt engineering", "vector embeddings", "mlflow", "model monitoring"}
+        skills = [skill for skill in skills if _keyword_key(skill) not in demote]
+    return skills
 
 
 def _resume_keyword_text(resume: dict) -> str:
@@ -853,6 +863,8 @@ def _summary_value_line(job_analysis: dict, skills: list[str]) -> str:
     ]).lower()
     if _contains_phrase(lower, ["solution architect", "solutions architect", "solutions engineer"]):
         return "Brings a practical architecture style that connects stakeholder needs, integration decisions, cloud constraints, and delivery tradeoffs."
+    if _contains_phrase(lower, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
+        return "Brings a product engineering style focused on maintainable features, secure customer data, thoughtful UX, small pull requests, and production reliability."
     if _contains_phrase(lower, ["healthcare", "claim", "reimbursement", "clinical", "revenue cycle"]):
         return "Brings a practical engineering style to healthcare workflows, balancing clean APIs, reliable data handling, and readable systems that operations teams can trust."
     if _contains_phrase(lower, ["platform", "devops", "kubernetes", "terraform", "sre", "observability"]):
@@ -880,6 +892,8 @@ def _summary_focus(job_analysis: dict) -> str:
     text = " ".join(duties[:4]).lower()
     if _contains_phrase(text, ["developer platform", "terraform", "kubernetes", "ci/cd", "observability", "incident"]):
         return "developer platforms, cloud automation, observability, and reliable delivery pipelines"
+    if _contains_phrase(text, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
+        return "Rails and React product features, donation workflows, admin reporting, customer bug fixes, and secure delivery"
     if _contains_phrase(text, ["stakeholder", "requirements", "solution architect", "solutions architect", "integration", "architecture"]):
         return "requirements discovery, system integration, architecture communication, and delivery tradeoffs"
     if _contains_phrase(text, ["dashboard", "kpi", "report", "stakeholder", "insight", "analytics"]):
@@ -917,6 +931,8 @@ def _contains_phrase(text: str, phrases: list[str]) -> bool:
 
 def _target_domain(target_title: str) -> str:
     title = target_title.lower()
+    if "full stack" in title or "full-stack" in title:
+        return "full-stack product engineering"
     if "solution" in title and "architect" in title:
         return "solutions architecture"
     if "frontend" in title:
@@ -939,6 +955,8 @@ def _role_family(job_analysis: dict) -> str:
         " ".join(job_analysis.get("keywords", [])),
         " ".join(job_analysis.get("job_duties", []) or job_analysis.get("responsibilities", [])),
     ]).lower()
+    if _contains_phrase(text, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
+        return "fullstack_rails"
     if _contains_phrase(text, ["solutions architect", "solution architect", "solutions engineer", "pre-sales", "presales"]):
         return "solutions_architecture"
     if _contains_phrase(text, ["ai engineer", "genai", "generative ai", "llm", "rag", "machine learning"]):
@@ -955,6 +973,7 @@ def _role_family(job_analysis: dict) -> str:
 def _role_priority_terms(job_analysis: dict) -> list[str]:
     family = _role_family(job_analysis)
     priorities = {
+        "fullstack_rails": ["Ruby on Rails", "React", "Stripe APIs", "PostgreSQL", "TypeScript", "JavaScript", "REST", "APIs", "AWS", "GitHub", "Datadog"],
         "solutions_architecture": ["Stakeholder Management", "Requirements Gathering", "System Integration", "Architecture", "Cloud", "AWS", "Agile", "APIs", "Communication", "Leadership"],
         "ai_engineering": ["RAG", "LLM", "Generative AI", "Vector Embeddings", "AI Agents", "LangChain", "OpenAI APIs", "FastAPI", "Python", "PostgreSQL"],
         "platform_engineering": ["Kubernetes", "Docker", "Terraform", "CI/CD", "AWS", "GitHub Actions", "Prometheus", "Grafana", "OpenTelemetry", "Linux"],
@@ -1061,6 +1080,7 @@ def _job_alignment_context(job_analysis: dict, index: int = 0) -> str:
 def _role_impact_phrase(job_analysis: dict, index: int = 0) -> str:
     family = _role_family(job_analysis)
     impact = {
+        "fullstack_rails": ["feature maintainability", "donor workflow clarity", "admin reporting quality", "secure delivery"],
         "solutions_architecture": ["implementation clarity", "technical handoff quality", "integration planning", "delivery tradeoff visibility"],
         "ai_engineering": ["retrieval quality", "automation reliability", "model workflow visibility", "production readiness"],
         "platform_engineering": ["release reliability", "operational visibility", "deployment consistency", "incident response"],
@@ -1080,6 +1100,8 @@ def _translated_role_contexts(job_analysis: dict) -> list[str]:
         " ".join(job_analysis.get("keywords", [])),
     ]).lower()
     contexts: list[str] = []
+    if _contains_phrase(text, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
+        contexts.extend(["Rails and React product features", "donor experience workflows", "admin reporting", "customer bug fixes", "secure payment workflows", "pull request review"])
     if _contains_phrase(text, ["solutions architect", "solution architect", "stakeholder", "requirements", "integration"]):
         contexts.extend(["solution discovery workflows", "system integration planning", "technical implementation plans", "cross-functional delivery planning"])
     if _contains_phrase(text, ["healthcare", "claim", "claims", "reimbursement", "revenue cycle"]):
@@ -1309,6 +1331,7 @@ def _restore_acronyms(text: str) -> str:
         "fastapi": "FastAPI",
         "postgresql": "PostgreSQL",
         "terraform": "Terraform",
+        "rails": "Rails",
     }
     for source, target in replacements.items():
         text = re.sub(rf"\b{source}\b", target, text, flags=re.I)
@@ -1342,6 +1365,23 @@ def _suggest_projects_for_gap(jd_keywords: list[str], resume: dict, job_analysis
     domain = job_analysis.get("domain", "")
     text = " ".join(missing + jd_keywords + [title, domain] + duties).lower()
     suggestions = []
+    if _contains_phrase(text, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
+        suggestions.append({
+            "name": "Stripe-Powered Donor Giving Experience",
+            "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"ruby on rails", "rails", "react", "stripe", "stripe apis", "postgresql", "aws"}],
+            "bullets": [
+                "Built a donor-facing giving workflow with Rails APIs, React forms, validation states, and secure payment handoff patterns.",
+                "Modeled donation records, admin review states, and reporting views so support and finance teams could trace giving activity."
+            ]
+        })
+        suggestions.append({
+            "name": "Donation Migration & Admin Reporting Tool",
+            "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"ruby on rails", "rails", "react", "postgresql", "datadog", "aws performance insights"}],
+            "bullets": [
+                "Designed a migration review workflow for imported donor records, exception handling, and admin-side reporting.",
+                "Added production-readiness notes for error monitoring, performance review, and small well-tested pull requests."
+            ]
+        })
     if _contains_phrase(text, ["solutions architect", "solution architect", "solutions engineer", "stakeholder", "requirements", "integration"]):
         suggestions.append({
             "name": "Enterprise Integration Readiness Platform",
@@ -1527,6 +1567,7 @@ def _recruiter_safe_sentence(text: str, job_analysis: dict, index: int) -> str:
     clean = re.sub(r"(?i)^(architected|engineered|designed|optimized|automated|delivered)\s+app\b", lambda m: f"{m.group(1).capitalize()} role-aligned workflow application", clean)
     clean = re.sub(r"(?i)^built dashboards\b", "Built operational dashboards", clean)
     clean = re.sub(r"(?i)^built deployments\b", "Managed deployment workflows", clean)
+    clean = re.sub(r"(?i)^(Architected|Engineered|Designed|Optimized|Automated|Delivered)\s+added\s+", "Added ", clean)
     clean = _fix_action_collisions(clean)
     clean = re.sub(r"(?i)\busing\s+([A-Za-z0-9+#./ -]+,\s*){2,}[A-Za-z0-9+#./ -]+", "with role-relevant tooling", clean)
     clean = re.sub(r"(?i)\b(millions|thousands|40%|50%|100%)\b", "high-volume" if index % 2 else "measurable", clean)
@@ -1566,6 +1607,12 @@ def _planning_or_collaboration_bullet(text: str) -> bool:
 def _impact_outcome_phrase(job_analysis: dict, index: int) -> str:
     family = _role_family(job_analysis)
     metrics = {
+        "fullstack_rails": [
+            "reduced donor workflow friction by 25%",
+            "improved admin reporting review speed by 30%",
+            "cut customer bug investigation time by 20%",
+            "improved feature delivery consistency by 25%",
+        ],
         "solutions_architecture": [
             "reduced implementation ambiguity by 30%",
             "shortened technical discovery cycles by 25%",
@@ -1610,6 +1657,11 @@ def _impact_outcome_phrase(job_analysis: dict, index: int) -> str:
 def _concrete_scale_phrase(job_analysis: dict, index: int) -> str:
     family = _role_family(job_analysis)
     scales = {
+        "fullstack_rails": [
+            "structured 8+ Rails API and React UI flows for giving workflows",
+            "organized 10+ admin reporting states for operational review",
+            "documented 6+ payment and data validation paths for release readiness",
+        ],
         "solutions_architecture": [
             "mapped 10+ integration touchpoints across API and cloud workflows",
             "organized 8+ implementation assumptions into clear delivery notes",
@@ -1648,6 +1700,7 @@ def _concrete_scale_phrase(job_analysis: dict, index: int) -> str:
 def _non_numeric_outcome_phrase(job_analysis: dict, index: int) -> str:
     family = _role_family(job_analysis)
     outcomes = {
+        "fullstack_rails": ["improved donor experience clarity", "made admin reporting easier to review", "strengthened secure customer-data handling", "reduced ambiguity during pull request review"],
         "solutions_architecture": ["accelerated requirement validation cycles", "reduced integration friction during release planning", "improved coordination between engineering and operations"],
         "ai_engineering": ["streamlined AI workflow validation and exception handling", "improved model-output review for operational teams", "strengthened traceability across AI-assisted decisions"],
         "platform_engineering": ["improved deployment reliability across cloud environments", "centralized monitoring signals for faster debugging", "strengthened release coordination across services"],
@@ -1700,7 +1753,8 @@ def _reduce_project_redundancy(resume: dict, job_analysis: dict) -> None:
             else:
                 break
         project["bullets"] = kept[:2]
-    resume["projects"] = _rank_projects_for_role(resume.get("projects", []), job_analysis)[:3]
+    limit = 2 if _role_family(job_analysis) == "fullstack_rails" else 3
+    resume["projects"] = _rank_projects_for_role(resume.get("projects", []), job_analysis)[:limit]
 
 
 def _project_bullet_fingerprint(text: str) -> set[str]:
@@ -1813,6 +1867,7 @@ def _avoid_repeated_ending(
 def _rank_projects_for_role(projects: list[dict], job_analysis: dict) -> list[dict]:
     family = _role_family(job_analysis)
     priority_terms = {
+        "fullstack_rails": ["giving", "donor", "donation", "stripe", "rails", "react", "admin", "reporting", "payment"],
         "platform_engineering": ["deployment", "ci/cd", "cloud", "kubernetes", "observability", "platform", "orchestration"],
         "ai_engineering": ["ai", "rag", "llm", "document", "retrieval", "model", "intelligence"],
         "solutions_architecture": ["integration", "readiness", "architecture", "api", "cloud", "implementation"],
@@ -1821,6 +1876,7 @@ def _rank_projects_for_role(projects: list[dict], job_analysis: dict) -> list[di
         "software_engineering": ["api", "service", "automation", "backend", "microservice", "platform"],
     }.get(family, ["api", "service", "automation"])
     negative_name_terms = {
+        "fullstack_rails": ["rag", "ai-assisted", "document intelligence", "developer platform", "ci/cd deployment", "model monitoring"],
         "platform_engineering": ["analytics", "kpi", "dashboard", "reporting", "business intelligence"],
         "ai_engineering": ["ci/cd", "deployment orchestrator", "analytics kpi"],
         "solutions_architecture": ["kpi", "dashboard", "model monitoring"],
@@ -2000,3 +2056,65 @@ def _remove_ai_tone(text: str) -> str:
     for word in BAD_AI_WORDS:
         text = re.sub(rf"\b{word}\b", "used", text, flags=re.I)
     return text
+
+
+def _role_specific_cleanup(resume: dict, job_analysis: dict) -> None:
+    if _role_family(job_analysis) != "fullstack_rails":
+        return
+    resume["target_title"] = "Full Stack Engineer"
+    resume["summary"] = _fullstack_rails_summary(resume)
+    allowed = {
+        "ruby on rails", "ruby", "rails", "react", "typescript", "javascript", "postgresql",
+        "aws", "github", "git", "rest", "apis", "stripe", "stripe apis", "datadog",
+        "aws performance insights", "react query", "redux"
+    }
+    skills = [skill for skill in _all_skills(resume) if _keyword_key(skill) in allowed]
+    skills = _dedupe_fullstack_skills(_unique(["Ruby on Rails", "React", "PostgreSQL", "JavaScript", "TypeScript"] + skills))
+    resume["skills"] = _categorize_skills(skills, resume.get("target_keywords", []))
+    for group in ("ai_ml_core", "deep_learning", "genai_llm_systems", "mlops_engineering", "ai_safety_compliance"):
+        resume["skills"][group] = []
+    for job in resume.get("experience", []):
+        job["bullets"] = [_fullstack_bullet_cleanup(bullet) for bullet in job.get("bullets", [])]
+    for project in resume.get("projects", []):
+        project["technologies"] = [tech for tech in project.get("technologies", []) if _keyword_key(tech) in allowed][:6]
+        project["bullets"] = [_fullstack_bullet_cleanup(bullet) for bullet in project.get("bullets", [])]
+
+
+def _fullstack_rails_summary(resume: dict) -> str:
+    years = _experience_label(resume)
+    years_text = f" with {years} of experience" if years else " with experience"
+    return (
+        f"Full Stack Engineer{years_text} building customer-facing web applications, backend APIs, and reporting workflows with React, Ruby on Rails, PostgreSQL, and AWS. "
+        "Strong in translating product requirements into maintainable features, reviewing pull requests, debugging production issues, and improving application reliability. "
+        "Focused on secure, thoughtful product experiences that reduce operational friction for users."
+    )
+
+
+def _fullstack_bullet_cleanup(text: str) -> str:
+    text = re.sub(r"(?i)\bAI-assisted development workflows\b", "developer productivity workflows", text)
+    text = re.sub(r"(?i)\bAI-enabled systems\b", "product systems", text)
+    text = re.sub(r"(?i)\bRAG pipelines?,?\s*", "", text)
+    text = re.sub(r"(?i)\bvector search,?\s*", "", text)
+    text = re.sub(r"(?i)\bAI reasoning workflows\b", "backend workflows", text)
+    text = re.sub(r"(?i)\bsmall well-tested pull requests\b", "small pull requests", text)
+    text = re.sub(r"(?i)\bfor pull request review, improving feature maintainability\b", "for pull request review", text)
+    text = re.sub(r"(?i)\bArchitected added\b", "Added", text)
+    text = re.sub(r"(?i)\brails and React\b", "Rails and React", text)
+    text = re.sub(r"(?i)\bimproving donor workflow clarity\b", "improving donor workflow usability", text)
+    text = re.sub(r"(?i)\band clearer donor workflow clarity\b", "and clearer product delivery", text)
+    return _clean_generated_sentence(_restore_acronyms(text.rstrip("."))) + "."
+
+
+def _dedupe_fullstack_skills(skills: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for skill in skills:
+        key = _keyword_key(skill)
+        if key == "rails" and "ruby on rails" in seen:
+            continue
+        if key == "stripe" and "stripe apis" in seen:
+            continue
+        if key not in seen:
+            result.append(skill)
+            seen.add(key)
+    return result
