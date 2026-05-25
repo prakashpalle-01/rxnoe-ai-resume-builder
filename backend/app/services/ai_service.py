@@ -171,6 +171,11 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     optimized = deepcopy(source_resume)
     job_analysis = analyze_job_description(job_description or "")
     jd_keywords = job_analysis.get("keywords", extract_keywords(job_description or ""))
+    source_supported = _supported_jd_keywords(source_resume, jd_keywords)
+    optimized["source_supported_keywords"] = source_supported
+    optimized["unverified_job_keywords"] = [
+        keyword for keyword in jd_keywords if _keyword_key(keyword) not in {_keyword_key(item) for item in source_supported}
+    ]
     summary = optimized.get("summary") or ""
     top_skills = _rank_role_skills(_all_skills(optimized), jd_keywords, job_analysis)
     optimized["skills"] = _categorize_skills(_blend_job_skills(_all_skills(optimized), job_analysis), jd_keywords)
@@ -192,6 +197,7 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     _humanize_resume(optimized)
     _recruiter_realism_pass(optimized, job_analysis)
     _role_specific_cleanup(optimized, job_analysis, source_resume)
+    _keep_only_verified_projects(optimized, source_resume)
     return optimized, "Improved summary, experience, and project bullets with recruiter-style language, verified skills, clearer impact, and ATS alignment without adding fake claims."
 
 
@@ -287,7 +293,7 @@ def _extract_job_title(text: str) -> str:
     if explicit:
         return _format_title(re.split(r"\.|\n|required|preferred|responsibilities", explicit.group(2), flags=re.I)[0])
     title_match = re.search(
-        r"(?i)(principal|staff|senior|sr\.?|lead|mid-level|junior|entry-level)?\s*(genai engineer|generative ai engineer|machine learning engineer|ml engineer|ai engineer|data engineer|data scientist|data analyst|analytics engineer|business intelligence analyst|platform engineer|site reliability engineer|sre|software engineer|software developer|product engineer|devops engineer|cloud engineer|solutions architect|cloud architect|business analyst|systems analyst|qa engineer|test automation engineer|java developer|python developer|react developer|full stack developer|full stack engineer|backend developer|backend engineer|frontend developer|frontend engineer|mobile engineer|ios developer|android developer|security engineer|cybersecurity analyst)",
+        r"(?i)(principal|staff|senior|sr\.?|lead|mid-level|junior|entry-level)?\s*(genai engineer|generative ai engineer|ai architect|machine learning engineer|ml engineer|ai engineer|data engineer|data scientist|data analyst|analytics engineer|business intelligence analyst|platform engineer|site reliability engineer|sre|linux systems engineer|systems engineer|aws software engineer|\.net developer|software engineer|software developer|product engineer|devops engineer|cloud engineer|software solutions architect|solutions architect|cloud architect|business analyst|systems analyst|qa automation engineer|qa engineer|test automation engineer|quality assurance engineer|java developer|java backend engineer|python developer|go developer|golang developer|react developer|full stack developer|full stack engineer|back-end software engineer|backend software engineer|backend developer|backend engineer|frontend developer|frontend engineer|mobile engineer|ios developer|android developer|security engineer|cybersecurity analyst)",
         text,
     )
     if title_match:
@@ -967,7 +973,11 @@ def _role_family(job_analysis: dict) -> str:
         " ".join(job_analysis.get("keywords", [])),
         " ".join(job_analysis.get("job_duties", []) or job_analysis.get("responsibilities", [])),
     ]).lower()
-    if _contains_phrase(text, ["ruby on rails", "rails", "stripe", "donor", "giving", "donation"]):
+    has_rails = _contains_phrase(text, ["ruby on rails", "rails"])
+    giving_rails = _contains_phrase(text, ["stripe", "donor", "giving", "donation"]) or (
+        has_rails and _contains_phrase(text, ["react"])
+    )
+    if giving_rails:
         return "fullstack_rails"
     if _contains_phrase(text, ["solutions architect", "solution architect", "solutions engineer", "pre-sales", "presales"]):
         return "solutions_architecture"
@@ -975,9 +985,25 @@ def _role_family(job_analysis: dict) -> str:
         return "ai_engineering"
     if _contains_phrase(text, ["platform engineer", "sre", "site reliability", "devops", "kubernetes", "terraform"]):
         return "platform_engineering"
-    if _contains_phrase(text, ["frontend", "react", "product engineer", "ui", "component"]):
+    benchmark = job_analysis.get("resume_benchmark", {}).get("key", "")
+    if has_rails:
+        return "rails_backend"
+    if benchmark == "dotnet_cloud":
+        return "dotnet_engineering"
+    if benchmark == "java_backend" or _contains_phrase(text, ["java backend", "spring boot", "j2ee"]):
+        return "java_backend"
+    if benchmark == "data_etl" or _contains_phrase(text, ["data engineer", "etl", "data warehouse", "airflow"]):
+        return "data_engineering"
+    target_title = job_analysis.get("job_title", "").lower()
+    if _contains_phrase(target_title, ["backend", "back-end", "go developer", "golang developer"]) or _contains_phrase(text, ["node.js backend", "node backend", "golang"]):
+        return "backend_engineering"
+    if benchmark == "web_frontend" or _contains_phrase(text, ["frontend", "front end", "react", "product engineer", "ui", "component", "vue", "next.js", "nextjs"]):
         return "product_frontend"
-    if _contains_phrase(text, ["data analyst", "business intelligence", "analytics", "dashboard", "kpi"]):
+    if benchmark == "business_analysis" or _contains_phrase(text, ["business analyst", "user stories", "requirements gathering"]):
+        return "business_analysis"
+    if benchmark == "quality_assurance" or _contains_phrase(text, ["quality assurance", "qa automation", "test automation", "selenium", "cypress"]):
+        return "quality_assurance"
+    if benchmark == "business_intelligence" or _contains_phrase(text, ["data analyst", "business intelligence", "analytics", "dashboard", "kpi"]):
         return "analytics"
     return "software_engineering"
 
@@ -986,11 +1012,18 @@ def _role_priority_terms(job_analysis: dict) -> list[str]:
     family = _role_family(job_analysis)
     priorities = {
         "fullstack_rails": ["Ruby on Rails", "React", "Stripe APIs", "PostgreSQL", "TypeScript", "JavaScript", "REST", "APIs", "AWS", "GitHub", "Datadog"],
+        "rails_backend": ["Ruby on Rails", "Ruby", "REST", "APIs", "PostgreSQL", "SQL", "AWS", "Docker", "Git"],
         "solutions_architecture": ["Stakeholder Management", "Requirements Gathering", "System Integration", "Architecture", "Cloud", "AWS", "Agile", "APIs", "Communication", "Leadership"],
         "ai_engineering": ["RAG", "LLM", "Generative AI", "Vector Embeddings", "AI Agents", "LangChain", "OpenAI APIs", "FastAPI", "Python", "PostgreSQL"],
         "platform_engineering": ["Kubernetes", "Docker", "Terraform", "CI/CD", "AWS", "GitHub Actions", "Prometheus", "Grafana", "OpenTelemetry", "Linux"],
+        "dotnet_engineering": [".NET", "C#", "SQL", "REST", "APIs", "AWS", "Docker", "CI/CD", "Git"],
+        "java_backend": ["Java", "Spring Boot", "REST", "APIs", "Microservices", "PostgreSQL", "Docker", "AWS", "Git"],
+        "data_engineering": ["Python", "SQL", "PostgreSQL", "Snowflake", "ETL", "AWS", "Docker", "Data Analysis"],
+        "backend_engineering": ["Go", "Python", "Node", "TypeScript", "JavaScript", "REST", "APIs", "PostgreSQL", "SQL", "AWS", "Docker", "Git"],
         "product_frontend": ["React", "TypeScript", "JavaScript", "APIs", "React Query", "Redux", "HTML5", "CSS3", "Figma", "Accessibility"],
         "analytics": ["SQL", "PostgreSQL", "Power BI", "Tableau", "Excel", "Python", "Data Analysis", "ETL", "Snowflake", "KPI Reporting"],
+        "business_analysis": ["SQL", "Agile", "Requirements Gathering", "Process Mapping", "Documentation", "APIs"],
+        "quality_assurance": ["Selenium", "Cypress", "Playwright", "API Testing", "CI/CD", "Git", "Postman"],
         "software_engineering": ["Python", "Java", "TypeScript", "FastAPI", "Spring Boot", "APIs", "Microservices", "PostgreSQL", "AWS", "Docker"],
     }
     return priorities.get(family, priorities["software_engineering"])
@@ -1093,11 +1126,18 @@ def _role_impact_phrase(job_analysis: dict, index: int = 0) -> str:
     family = _role_family(job_analysis)
     impact = {
         "fullstack_rails": ["feature maintainability", "donor workflow clarity", "admin reporting quality", "secure delivery"],
+        "rails_backend": ["service reliability", "API clarity", "data integrity", "production maintainability"],
         "solutions_architecture": ["implementation clarity", "technical handoff quality", "integration planning", "delivery tradeoff visibility"],
         "ai_engineering": ["retrieval quality", "automation reliability", "model workflow visibility", "production readiness"],
         "platform_engineering": ["release reliability", "operational visibility", "deployment consistency", "incident response"],
+        "dotnet_engineering": ["service reliability", "secure delivery", "database integrity", "release confidence"],
+        "java_backend": ["service reliability", "API maintainability", "integration quality", "deployment readiness"],
+        "data_engineering": ["pipeline reliability", "data quality", "processing visibility", "reporting readiness"],
+        "backend_engineering": ["service reliability", "API maintainability", "production support", "secure delivery"],
         "product_frontend": ["user flow clarity", "interface reliability", "product delivery speed", "API-backed usability"],
         "analytics": ["reporting accuracy", "decision visibility", "data quality", "stakeholder confidence"],
+        "business_analysis": ["requirements clarity", "delivery alignment", "process visibility", "acceptance quality"],
+        "quality_assurance": ["release confidence", "defect prevention", "test coverage", "regression visibility"],
         "software_engineering": ["service reliability", "delivery quality", "operational visibility", "maintainability"],
     }
     options = impact.get(family, impact["software_engineering"])
@@ -1299,6 +1339,12 @@ def _format_title(title: str) -> str:
         "genai": "GenAI",
         "ai": "AI",
         "ml": "ML",
+        "qa": "QA",
+        "aws": "AWS",
+        "sre": "SRE",
+        "sql": "SQL",
+        ".net": ".NET",
+        "api": "API",
         "devops": "DevOps",
         "frontend": "Frontend",
         "backend": "Backend",
@@ -2073,16 +2119,63 @@ def _remove_ai_tone(text: str) -> str:
 
 def _role_specific_cleanup(resume: dict, job_analysis: dict, source_resume: Optional[dict] = None) -> None:
     family = _role_family(job_analysis)
+    source_resume = source_resume or resume
+    if family == "fullstack_rails" and not _source_supports_any(source_resume, ["Ruby on Rails", "Rails"]):
+        _generic_target_cleanup(resume, job_analysis, source_resume)
+        return
     if family == "platform_engineering":
-        _platform_engineering_cleanup(resume, job_analysis, source_resume or resume)
+        _platform_engineering_cleanup(resume, job_analysis, source_resume)
         return
     if family == "product_frontend":
-        _product_frontend_cleanup(resume, job_analysis, source_resume or resume)
+        if not _source_supports_any(source_resume, ["React", "TypeScript", "JavaScript"]):
+            _generic_target_cleanup(resume, job_analysis, source_resume)
+            return
+        _product_frontend_cleanup(resume, job_analysis, source_resume)
         return
     if family == "ai_engineering":
-        _ai_engineering_cleanup(resume, job_analysis, source_resume or resume)
+        if not _source_supports_any(source_resume, ["Python", "FastAPI", "RAG", "LLM", "Generative AI"]):
+            _generic_target_cleanup(resume, job_analysis, source_resume)
+            return
+        _ai_engineering_cleanup(resume, job_analysis, source_resume)
+        return
+    if family == "java_backend":
+        if not _source_supports_any(source_resume, ["Java", "Spring Boot"]):
+            _generic_target_cleanup(resume, job_analysis, source_resume)
+            return
+        _profile_cleanup(resume, job_analysis, source_resume, _java_profile())
+        return
+    if family == "data_engineering":
+        if not _source_supports_any(source_resume, ["Python", "SQL"]):
+            _generic_target_cleanup(resume, job_analysis, source_resume)
+            return
+        _profile_cleanup(resume, job_analysis, source_resume, _data_profile())
+        return
+    if family == "backend_engineering":
+        _profile_cleanup(resume, job_analysis, source_resume, _backend_profile(job_analysis, source_resume))
+        return
+    if family == "analytics":
+        _profile_cleanup(resume, job_analysis, source_resume, _analytics_profile())
+        return
+    if family == "business_analysis":
+        _profile_cleanup(resume, job_analysis, source_resume, _business_analysis_profile())
+        return
+    if family == "quality_assurance":
+        _profile_cleanup(resume, job_analysis, source_resume, _qa_profile())
+        return
+    if family == "rails_backend":
+        if not _source_supports_any(source_resume, ["Ruby on Rails", "Rails"]):
+            _generic_target_cleanup(resume, job_analysis, source_resume)
+            return
+        _profile_cleanup(resume, job_analysis, source_resume, _rails_backend_profile())
+        return
+    if family == "dotnet_engineering":
+        _profile_cleanup(resume, job_analysis, source_resume, _dotnet_profile())
+        return
+    if family == "solutions_architecture":
+        _profile_cleanup(resume, job_analysis, source_resume, _solutions_profile())
         return
     if family != "fullstack_rails":
+        _generic_target_cleanup(resume, job_analysis, source_resume)
         return
     resume["target_title"] = "Full Stack Engineer"
     resume["summary"] = _fullstack_rails_summary(resume)
@@ -2098,11 +2191,29 @@ def _role_specific_cleanup(resume: dict, job_analysis: dict, source_resume: Opti
     _force_fullstack_rails_projects(resume)
 
 
+def _source_supports_any(source_resume: dict, keywords: list[str]) -> bool:
+    content = _resume_keyword_text(source_resume)
+    return any(_keyword_key(keyword) in content for keyword in keywords)
+
+
+def _keep_only_verified_projects(resume: dict, source_resume: dict) -> None:
+    original = deepcopy(source_resume.get("projects", []))
+    generated = resume.get("projects", [])
+    suggestions = deepcopy(resume.get("suggested_projects", []))
+    original_names = {_keyword_key(project.get("name", "")) for project in original}
+    for project in generated:
+        key = _keyword_key(project.get("name", ""))
+        if key and key not in original_names:
+            suggestions.append({**project, "requires_confirmation": True})
+    resume["projects"] = original
+    resume["suggested_projects"] = _dedupe_projects_by_name(suggestions)
+
+
 def _platform_engineering_cleanup(resume: dict, job_analysis: dict, source_resume: dict) -> None:
     title = job_analysis.get("job_title") or "AWS Software Engineer"
     jd_text = " ".join(job_analysis.get("keywords", []) + job_analysis.get("job_duties", [])).lower()
-    resume["target_title"] = "AWS Software Engineer" if "aws" in jd_text else (title if "engineer" in title.lower() else "Cloud Software Engineer")
-    resume["summary"] = _platform_engineering_summary(resume)
+    resume["target_title"] = title if "engineer" in title.lower() else ("AWS Software Engineer" if "aws" in jd_text else "Cloud Software Engineer")
+    resume["summary"] = _platform_engineering_summary(resume, source_resume)
     allowed = {
         "aws", "docker", "kubernetes", "terraform", "ci/cd", "git", "github", "github actions",
         "sql", "postgresql", "prometheus", "grafana", "opentelemetry", "linux", "apis", "rest",
@@ -2122,10 +2233,10 @@ def _platform_engineering_cleanup(resume: dict, job_analysis: dict, source_resum
     _force_platform_projects(resume)
 
 
-def _platform_engineering_summary(resume: dict) -> str:
+def _platform_engineering_summary(resume: dict, source_resume: dict) -> str:
     years = _experience_label(resume)
     years_text = f" with {years} of experience" if years else " with experience"
-    visible = _all_skills(resume)
+    visible = _all_skills(source_resume)
     featured = [skill for skill in ["AWS", "Terraform", "Docker", "Kubernetes", "CI/CD", "SQL"] if skill in visible]
     stack = _human_join(featured[:5]) or "AWS services and deployment automation"
     return (
@@ -2133,6 +2244,289 @@ def _platform_engineering_summary(resume: dict) -> str:
         "Experienced supporting reliable releases, diagnosing production issues, and improving service visibility through practical automation and monitoring. "
         "Focused on maintainable software, secure delivery, and dependable operational outcomes."
     )
+
+
+def _generic_target_cleanup(resume: dict, job_analysis: dict, source_resume: dict) -> None:
+    target = job_analysis.get("job_title") or "Software Engineer"
+    years = _experience_label(source_resume)
+    years_text = f" with {years} of experience" if years else " with experience"
+    benchmark = job_analysis.get("resume_benchmark", {})
+    focus = benchmark.get("resume_focus") or "maintainable software, clear implementation, and dependable delivery"
+    skills = _summary_skills(_supported_jd_keywords(source_resume, job_analysis.get("keywords", [])))
+    skill_text = f" Supported experience includes {_human_join(skills)}." if skills else ""
+    resume["target_title"] = target
+    resume["summary"] = f"{target}{years_text} delivering software and technical workflows aligned to {focus}.{skill_text} Focused on truthful, maintainable implementation and production-ready outcomes."
+    resume["projects"] = deepcopy(source_resume.get("projects", []))
+
+
+def _profile_cleanup(resume: dict, job_analysis: dict, source_resume: dict, profile: dict) -> None:
+    resume["target_title"] = job_analysis.get("job_title") or profile["title"]
+    years = _experience_label(resume)
+    years_text = f" with {years} of experience" if years else " with experience"
+    resume["summary"] = (
+        f"{resume['target_title']}{years_text} {profile['summary_work']}. "
+        f"Experienced in {profile['summary_value']}. "
+        f"Focused on {profile['summary_focus']}."
+    )
+    supported = _supported_profile_skills(source_resume, profile["allowed"])
+    resume["skills"] = _profile_skills(supported, profile["groups"])
+    for index, job in enumerate(resume.get("experience", [])):
+        _normalize_platform_job_header(job)
+        job["bullets"] = profile["bullet_sets"][min(index, len(profile["bullet_sets"]) - 1)]
+    resume["projects"] = profile["projects"]
+
+
+def _supported_profile_skills(source_resume: dict, allowed: set[str]) -> list[str]:
+    return _unique([skill for skill in _all_skills(source_resume) if _keyword_key(skill) in allowed])
+
+
+def _profile_skills(skills: list[str], groups: dict[str, set[str]]) -> dict:
+    result = {
+        "programming": [], "frameworks_libraries": [], "cloud_infrastructure": [],
+        "mlops_engineering": [], "databases_vector_stores": [], "monitoring_observability": [],
+        "developer_tools": [], "technical": [], "ai_ml_core": [], "deep_learning": [],
+        "genai_llm_systems": [], "ai_safety_compliance": [], "tools": [], "cloud": [],
+        "databases": [], "soft_skills": [],
+    }
+    for skill in skills:
+        key = _keyword_key(skill)
+        group = next((name for name, values in groups.items() if key in values), "technical")
+        result[group].append(skill)
+    return result
+
+
+def _java_profile() -> dict:
+    return {
+        "title": "Java Backend Engineer",
+        "summary_work": "building backend services and API-driven applications with Java, Spring Boot, PostgreSQL, and AWS",
+        "summary_value": "service design, data persistence, integration workflows, and maintainable delivery",
+        "summary_focus": "reliable APIs, clear system behavior, and production-ready backend engineering",
+        "allowed": {"java", "spring boot", "rest", "apis", "microservices", "postgresql", "sql", "aws", "docker", "git", "github"},
+        "groups": {
+            "programming": {"java", "apis", "sql"}, "frameworks_libraries": {"spring boot", "rest", "microservices"},
+            "databases_vector_stores": {"postgresql"}, "cloud_infrastructure": {"aws"},
+            "mlops_engineering": {"docker"}, "developer_tools": {"git", "github"},
+        },
+        "bullet_sets": [
+            ["Developed Java and Spring Boot service workflows with REST API boundaries and PostgreSQL-backed persistence for maintainable backend delivery.",
+             "Designed validation and processing flows that kept operational behavior traceable across API and data-layer changes.",
+             "Applied Docker and AWS delivery practices to support dependable application releases and production review."],
+            ["Built backend and data integrations for API-driven applications, emphasizing clear service behavior and maintainable implementation.",
+             "Improved SQL-backed workflow logic and troubleshooting practices for reliable operational processing.",
+             "Collaborated on testing, code review, and deployment decisions across service-oriented delivery."],
+            ["Supported application services and production issue investigation across backend workflows.",
+             "Documented implementation and release considerations for dependable software delivery."],
+        ],
+        "projects": [
+            {"name": "Service-Oriented Workflow API", "technologies": ["Java", "Spring Boot", "PostgreSQL", "REST"], "bullets": ["Designed REST service boundaries, request validation, persistence flows, and failure handling for a maintainable backend workflow.", "Documented API behavior and testing scenarios for implementation and release review."]},
+            {"name": "Cloud-Ready Backend Delivery Pipeline", "technologies": ["Java", "Docker", "AWS"], "bullets": ["Structured container-based delivery practices for a backend service with environment configuration and health-check planning.", "Outlined deployment validation and operational review steps for reliable service releases."]},
+        ],
+    }
+
+
+def _backend_profile(job_analysis: dict, source_resume: dict) -> dict:
+    supported = _supported_jd_keywords(source_resume, job_analysis.get("keywords", []))
+    text = " ".join(supported).lower()
+    technologies = []
+    for skill in ["Go", "Python", "Node", "TypeScript", "JavaScript", "PostgreSQL", "SQL", "AWS", "Docker"]:
+        if _keyword_key(skill) in _keyword_key(text):
+            technologies.append(skill)
+    stack = _human_join(technologies[:4]) or "APIs, databases, and cloud delivery practices"
+    return {
+        "title": "Backend Software Engineer",
+        "summary_work": f"building API-driven services and production application workflows with {stack}",
+        "summary_value": "service implementation, data handling, debugging, and reliable software delivery",
+        "summary_focus": "maintainable backend systems, secure application behavior, and production reliability",
+        "allowed": {"go", "python", "node", "typescript", "javascript", "rest", "apis", "postgresql", "sql", "aws", "docker", "git", "github", "redis", "microservices"},
+        "groups": {"programming": {"go", "python", "typescript", "javascript", "sql", "apis"}, "frameworks_libraries": {"node", "rest", "microservices"}, "databases_vector_stores": {"postgresql", "redis"}, "cloud_infrastructure": {"aws"}, "mlops_engineering": {"docker"}, "developer_tools": {"git", "github"}},
+        "bullet_sets": [
+            ["Developed API-backed application workflows with clear service behavior, validation, and maintainable data handling.",
+             "Designed backend processing and error-handling paths that supported reliable production operation and practical troubleshooting.",
+             "Applied cloud and deployment practices to improve release readiness and operational support."],
+            ["Built service and data workflow enhancements for production applications, emphasizing readable implementation and dependable behavior.",
+             "Investigated application issues through logs, data checks, and reproducible technical context.",
+             "Collaborated on testing, code review, and production delivery for backend changes."],
+            ["Supported backend service reliability and technical issue resolution across application workflows.",
+             "Documented service behavior and release considerations for maintainable delivery."],
+        ],
+        "projects": [
+            {"name": "Production Service Workflow API", "technologies": technologies[:4] or ["REST APIs", "SQL"], "bullets": ["Designed API operations, validation rules, persistence behavior, and failure handling for a maintainable backend service.", "Documented test scenarios and deployment considerations for reliable production review."]},
+            {"name": "Service Reliability Operations Toolkit", "technologies": [skill for skill in technologies if skill in {"AWS", "Docker", "PostgreSQL", "SQL"}] or ["Git"], "bullets": ["Structured operational review around service errors, data checks, and release verification practices.", "Created clear troubleshooting and implementation notes for repeatable backend support."]},
+        ],
+    }
+
+
+def _rails_backend_profile() -> dict:
+    return {
+        "title": "Back-end Software Engineer",
+        "summary_work": "building maintainable web services, API workflows, and data-backed application behavior with Ruby on Rails and PostgreSQL",
+        "summary_value": "backend implementation, validation, production troubleshooting, and dependable software delivery",
+        "summary_focus": "readable Rails services, secure application behavior, and useful customer outcomes",
+        "allowed": {"ruby on rails", "ruby", "rest", "apis", "postgresql", "sql", "aws", "docker", "git", "github", "graphql"},
+        "groups": {"programming": {"ruby", "sql", "apis"}, "frameworks_libraries": {"ruby on rails", "rest", "graphql"}, "databases_vector_stores": {"postgresql"}, "cloud_infrastructure": {"aws"}, "mlops_engineering": {"docker"}, "developer_tools": {"git", "github"}},
+        "bullet_sets": [
+            ["Developed backend application workflows with clear API behavior, database validation, and maintainable service boundaries.",
+             "Implemented data-backed processing and exception handling practices to improve operational reliability and support review.",
+             "Investigated production application issues through observable behavior and practical debugging steps."],
+            ["Built service and data workflow improvements for API-backed applications with attention to maintainable implementation.",
+             "Supported testable changes, technical review, and dependable production delivery across backend work.",
+             "Collaborated on issue resolution and workflow improvements tied to user-facing application behavior."],
+            ["Supported backend workflow reliability and production investigation across software delivery work.",
+             "Documented implementation and release considerations for maintainable application changes."],
+        ],
+        "projects": [
+            {"name": "API-Driven Content Delivery Service", "technologies": ["Ruby on Rails", "PostgreSQL", "REST APIs"], "bullets": ["Designed API endpoints, validation behavior, persistence flows, and failure handling for a maintainable web service.", "Documented test scenarios and release considerations for dependable backend delivery."]},
+            {"name": "Application Reliability Review Toolkit", "technologies": ["Ruby on Rails", "PostgreSQL", "Git"], "bullets": ["Structured application issue review around data checks, error behavior, and clear remediation notes.", "Organized change-review practices for readable implementation and production support."]},
+        ],
+    }
+
+
+def _dotnet_profile() -> dict:
+    return {
+        "title": ".NET Software Engineer",
+        "summary_work": "developing backend services and software delivery workflows for secure, dependable application systems",
+        "summary_value": "API design, database-backed processing, testing considerations, and production support",
+        "summary_focus": "maintainable implementation, service reliability, and clear operational outcomes",
+        "allowed": {"net", "c#", "sql", "postgresql", "rest", "apis", "aws", "azure", "docker", "ci/cd", "git", "github"},
+        "groups": {"programming": {"c#", "sql", "apis"}, "frameworks_libraries": {"net", "rest"}, "databases_vector_stores": {"postgresql"}, "cloud_infrastructure": {"aws", "azure"}, "mlops_engineering": {"docker", "ci/cd"}, "developer_tools": {"git", "github"}},
+        "bullet_sets": [
+            ["Developed backend application workflows with API validation, data handling, and reliable production delivery practices.",
+             "Applied database-backed processing and troubleshooting methods to keep service behavior clear and supportable.",
+             "Contributed to tested implementation and deployment review for dependable software changes."],
+            ["Built service workflow improvements focused on maintainable code, operational clarity, and release readiness.",
+             "Investigated application issues through data behavior and error context, supporting practical remediation.",
+             "Collaborated on implementation review and reliable software delivery."],
+            ["Supported backend application delivery, issue resolution, and clear technical documentation."],
+        ],
+        "projects": [
+            {"name": "Secure Service Workflow API", "technologies": ["SQL", "REST APIs", "Git"], "bullets": ["Designed service validation and data-flow patterns for a secure, maintainable API-backed application.", "Documented release checks and failure-handling behavior for implementation review."]},
+        ],
+    }
+
+
+def _solutions_profile() -> dict:
+    return {
+        "title": "Software Solutions Architect",
+        "summary_work": "connecting application workflows, cloud delivery, and technical implementation decisions across software initiatives",
+        "summary_value": "solution analysis, API and integration thinking, delivery planning, and production-minded engineering",
+        "summary_focus": "credible architecture communication, clear tradeoffs, and maintainable delivery",
+        "allowed": {"aws", "apis", "rest", "sql", "postgresql", "javascript", "typescript", "docker", "git", "github", "microservices"},
+        "groups": {"programming": {"javascript", "typescript", "sql", "apis"}, "frameworks_libraries": {"rest", "microservices"}, "databases_vector_stores": {"postgresql"}, "cloud_infrastructure": {"aws"}, "mlops_engineering": {"docker"}, "developer_tools": {"git", "github"}},
+        "bullet_sets": [
+            ["Translated operational and product needs into clear technical workflows, service boundaries, and implementation considerations.",
+             "Designed API and data-flow approaches that balanced maintainability, delivery constraints, and production support needs.",
+             "Communicated solution decisions through practical documentation, reviewable changes, and operational context."],
+            ["Built service-backed workflow improvements and contributed technical guidance across application delivery work.",
+             "Analyzed integration and data behavior to clarify dependencies, risks, and implementation paths.",
+             "Collaborated with engineering partners on reviewable, maintainable production changes."],
+            ["Supported system delivery and technical investigation across software workflows.",
+             "Documented solution behavior and operational review considerations."],
+        ],
+        "projects": [
+            {"name": "Enterprise Integration Readiness Platform", "technologies": ["REST APIs", "PostgreSQL", "AWS"], "bullets": ["Mapped system touchpoints, API behaviors, data constraints, and rollout considerations for a reviewable integration plan.", "Documented tradeoffs and validation steps so implementation choices could be evaluated clearly."]},
+            {"name": "Cloud Solution Delivery Blueprint", "technologies": ["AWS", "Docker", "Git"], "bullets": ["Structured deployment and service reliability considerations for a cloud-hosted application workflow.", "Created technical review notes connecting architecture decisions to operational support and delivery risks."]},
+        ],
+    }
+
+
+def _data_profile() -> dict:
+    return {
+        "title": "Data Engineer",
+        "summary_work": "developing data pipelines, backend processing workflows, and cloud-based data services with Python, SQL, PostgreSQL, Snowflake, and AWS",
+        "summary_value": "data validation, reliable processing, reporting support, and operational troubleshooting",
+        "summary_focus": "trustworthy datasets, maintainable pipelines, and decision-ready data delivery",
+        "allowed": {"python", "sql", "postgresql", "snowflake", "aws", "docker", "git", "github", "etl"},
+        "groups": {"programming": {"python", "sql"}, "databases_vector_stores": {"postgresql", "snowflake"}, "cloud_infrastructure": {"aws"}, "mlops_engineering": {"docker"}, "developer_tools": {"git", "github"}, "technical": {"etl"}},
+        "bullet_sets": [
+            ["Developed Python and SQL processing workflows for operational data handling, validation, and reporting-ready outputs.",
+             "Designed PostgreSQL-backed data paths with clear exception handling and traceable transformations for reliable review.",
+             "Applied AWS and Docker delivery practices to support repeatable deployment of data-oriented services."],
+            ["Built data workflow and API improvements that made processing behavior easier to inspect and maintain.",
+             "Investigated data-quality and operational issues through structured checks and technical troubleshooting.",
+             "Collaborated on implementation, testing, and release considerations for production data delivery."],
+            ["Supported reliable data processing and production investigation across service-backed workflows.",
+             "Documented validation assumptions and operational review practices for maintainable delivery."],
+        ],
+        "projects": [
+            {"name": "Operational Data Quality Pipeline", "technologies": ["Python", "SQL", "PostgreSQL", "AWS"], "bullets": ["Designed ingestion, validation, and exception-review stages for a reporting-ready data workflow.", "Structured data-quality checks and traceable processing outputs for operational review."]},
+            {"name": "Cloud Analytics Processing Service", "technologies": ["Python", "Snowflake", "AWS", "Docker"], "bullets": ["Built a cloud-oriented data processing concept focused on cleaned outputs, scheduled execution, and reproducible deployment.", "Documented reliability and monitoring considerations for production data workflows."]},
+        ],
+    }
+
+
+def _analytics_profile() -> dict:
+    return {
+        "title": "Business Intelligence Analyst",
+        "summary_work": "turning operational data into clear reporting and business insights with SQL, PostgreSQL, and analytics workflows",
+        "summary_value": "data validation, reporting logic, stakeholder-facing analysis, and actionable interpretation",
+        "summary_focus": "accurate metrics, readable reporting, and decisions grounded in reliable data",
+        "allowed": {"sql", "postgresql", "python", "snowflake", "excel", "tableau", "power bi", "data analysis"},
+        "groups": {"programming": {"sql", "python"}, "databases_vector_stores": {"postgresql", "snowflake"}, "developer_tools": {"excel", "tableau", "power bi"}, "technical": {"data analysis"}},
+        "bullet_sets": [
+            ["Analyzed operational workflow data and reporting needs, translating business questions into structured query and validation logic.",
+             "Created reporting-ready outputs and exception-review approaches to improve confidence in recurring operational analysis.",
+             "Communicated technical findings in clear terms suited to business review and practical decision-making."],
+            ["Developed SQL-backed reporting workflows that improved visibility into operational trends and data-quality issues.",
+             "Reviewed data behavior and reporting assumptions to support consistent analysis across recurring requests.",
+             "Collaborated on clear delivery of analytics findings and implementation considerations."],
+            ["Supported structured reporting and operational review through dependable data handling practices.",
+             "Documented analysis assumptions and validation steps for repeatable business reporting."],
+        ],
+        "projects": [
+            {"name": "Operational Metrics & Reporting Workspace", "technologies": ["SQL", "PostgreSQL"], "bullets": ["Designed KPI definitions, validation checks, and reporting outputs for recurring operational review.", "Documented metric assumptions and exception paths to improve confidence in reported findings."]},
+            {"name": "Decision Support Analytics Dashboard", "technologies": ["SQL", "Python"], "bullets": ["Structured analysis-ready datasets and summary views around practical business questions.", "Translated trends and data-quality observations into clear review notes and recommendations."]},
+        ],
+    }
+
+
+def _business_analysis_profile() -> dict:
+    return {
+        "title": "Business Analyst",
+        "summary_work": "connecting operational needs, technical workflows, and delivery decisions across software and data-driven initiatives",
+        "summary_value": "requirements clarification, process analysis, validation thinking, and cross-functional implementation support",
+        "summary_focus": "clear requirements, practical solutions, and measurable operational value",
+        "allowed": {"sql", "agile", "scrum", "apis", "jira", "confluence", "excel", "data analysis"},
+        "groups": {"programming": {"sql", "apis"}, "developer_tools": {"jira", "confluence", "excel"}, "technical": {"agile", "scrum", "data analysis"}},
+        "bullet_sets": [
+            ["Translated operational workflow needs into clear functional requirements, validation rules, and implementation-ready decisions.",
+             "Mapped process issues and system behavior to improve clarity between product goals and technical delivery.",
+             "Collaborated with engineering and operational partners on acceptance expectations, workflow review, and release readiness."],
+            ["Analyzed data-backed workflow issues and documented practical recommendations for implementation and review.",
+             "Supported cross-functional delivery by clarifying process assumptions, technical dependencies, and business outcomes.",
+             "Organized reviewable requirements and validation considerations for maintainable software changes."],
+            ["Supported operational process improvement through structured analysis and clear documentation.",
+             "Contributed to implementation review and issue resolution across technical workflows."],
+        ],
+        "projects": [
+            {"name": "Operational Workflow Requirements Hub", "technologies": ["SQL", "APIs"], "bullets": ["Mapped user needs, system touchpoints, validation rules, and acceptance scenarios for an operational workflow.", "Created implementation-ready requirements notes connecting process outcomes to technical behavior."]},
+            {"name": "Business Process Insight Workspace", "technologies": ["SQL"], "bullets": ["Organized process observations and data checks into a clear improvement analysis.", "Documented assumptions, risks, and review criteria for cross-functional delivery decisions."]},
+        ],
+    }
+
+
+def _qa_profile() -> dict:
+    return {
+        "title": "QA Automation Engineer",
+        "summary_work": "supporting quality engineering, production reliability, and API-backed application delivery",
+        "summary_value": "defect investigation, validation thinking, release review, and dependable technical workflows",
+        "summary_focus": "clear test coverage, actionable defect reporting, and release confidence",
+        "allowed": {"playwright", "cypress", "selenium", "ci/cd", "git", "github", "apis", "rest", "postman"},
+        "groups": {"frameworks_libraries": {"apis", "rest"}, "mlops_engineering": {"ci/cd"}, "developer_tools": {"playwright", "cypress", "selenium", "git", "github", "postman"}},
+        "bullet_sets": [
+            ["Defined validation scenarios and error-handling checks for API-backed product workflows and production-ready changes.",
+             "Investigated application issues through reproducible steps, expected behavior, and clear defect context for engineering review.",
+             "Supported release quality through structured test thinking, implementation review, and operational follow-up."],
+            ["Reviewed workflow behavior and service outputs to identify issues before release and clarify expected results.",
+             "Collaborated with engineering teammates on testability, failure handling, and reliable implementation delivery.",
+             "Documented defect findings and validation outcomes for practical release decisions."],
+            ["Supported software quality and production troubleshooting through clear issue analysis and validation notes.",
+             "Contributed to release review practices for maintainable application changes."],
+        ],
+        "projects": [
+            {"name": "API Workflow Test Automation Suite", "technologies": ["REST APIs", "Git"], "bullets": ["Designed reusable validation scenarios for success, failure, and edge-case behaviors across API-backed workflows.", "Documented expected results and defect reporting patterns for consistent engineering review."]},
+            {"name": "Release Readiness Validation Console", "technologies": ["CI/CD", "Git"], "bullets": ["Organized regression checks, release verification notes, and issue-triage context into a focused quality workflow.", "Structured review outputs to improve traceability from defect discovery to resolved release behavior."]},
+        ],
+    }
 
 
 def _product_frontend_cleanup(resume: dict, job_analysis: dict, source_resume: dict) -> None:

@@ -8,6 +8,11 @@ def score_resume(resume: dict, raw_text: str, job_description: str) -> dict:
     resume_text = _resume_content_text(resume)
     matched = [word for word in keywords if word.lower() in resume_text]
     missing = [word for word in keywords if word.lower() not in resume_text]
+    if _is_generated_targeted(resume):
+        unverified = resume.get("unverified_job_keywords", [])
+        unverified_keys = {item.lower() for item in unverified}
+        matched = [word for word in matched if word.lower() not in unverified_keys]
+        missing = _unique_words(missing + [word for word in keywords if word.lower() in unverified_keys])
     keyword_score = _percent(len(matched), max(len(keywords), 1))
     skills_score = _clamp(keyword_score + 10 if _skills_count(resume) >= 8 else keyword_score - 10)
     experience_score = _experience_score(resume)
@@ -34,7 +39,8 @@ def score_resume(resume: dict, raw_text: str, job_description: str) -> dict:
         "metric_prompts": _metric_prompts(resume),
         "project_suggestions": _project_suggestions(missing, analysis),
         "warnings": warnings,
-        "recruiter_view": _recruiter_view(resume, matched, missing)
+        "recruiter_view": _recruiter_view(resume, matched, missing),
+        "recruiter_decision": _recruiter_decision(overall, missing),
     }
     if _is_generated_targeted(resume):
         return _generated_targeted_score(result, missing)
@@ -49,6 +55,17 @@ def _clamp(value: int) -> int:
     return max(0, min(100, value))
 
 
+def _unique_words(values: list[str]) -> list[str]:
+    result = []
+    seen = set()
+    for value in values:
+        key = value.lower()
+        if key not in seen:
+            seen.add(key)
+            result.append(value)
+    return result
+
+
 def _is_generated_targeted(resume: dict) -> bool:
     return resume.get("optimization_status") == "generated_targeted" or resume.get("score_target") == 100
 
@@ -58,7 +75,27 @@ def _generated_targeted_score(result: dict, unsupported: list[str]) -> dict:
     if unsupported:
         note += " Confirm missing skills before adding them."
     result["warnings"] = [note] + result.get("warnings", [])
+    result["recruiter_decision"] = _recruiter_decision(result.get("overall_score", 0), unsupported)
     return result
+
+
+def _recruiter_decision(score: int, missing: list[str]) -> dict:
+    if not missing and score >= 85:
+        return {
+            "status": "Ready for recruiter review",
+            "reason": "The resume is strongly aligned and no major extracted skill gaps remain. Verify every project and metric before applying.",
+        }
+    if score >= 75:
+        gap_text = ", ".join(missing[:4]) if missing else "remaining role-specific evidence"
+        return {
+            "status": "Competitive with gaps",
+            "reason": f"The resume is readable and targeted, but a recruiter may screen for evidence of {gap_text}. Add only truthful proof.",
+        }
+    gap_text = ", ".join(missing[:5]) if missing else "core role evidence"
+    return {
+        "status": "Not ready for this role",
+        "reason": f"The job requires evidence not clearly supported by the resume: {gap_text}. Tailoring wording alone cannot solve this gap.",
+    }
 
 
 def _skills_count(resume: dict) -> int:

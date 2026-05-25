@@ -49,6 +49,7 @@ export type ResumeJson = {
     url?: string;
     technologies: string[];
     bullets: string[];
+    requires_confirmation?: boolean;
   }>;
   education: string[];
   certifications: string[];
@@ -87,6 +88,10 @@ export type AtsScore = {
   confirm_before_adding?: string[];
   metric_prompts?: string[];
   project_suggestions?: string[];
+  recruiter_decision?: {
+    status: string;
+    reason: string;
+  };
   warnings: string[];
   recruiter_view: string[];
 };

@@ -229,6 +229,12 @@ export function JobMatchPage() {
               </div>
               <ProgressBar value={activeScore.overall_score} />
             </div>
+            {activeScore.recruiter_decision && (
+              <div className={`rounded-md border p-3 ${activeScore.overall_score >= 85 ? "border-emerald-200 bg-emerald-50" : activeScore.overall_score >= 75 ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}>
+                <p className="font-semibold">{activeScore.recruiter_decision.status}</p>
+                <p className="mt-1 text-sm text-slate-700">{activeScore.recruiter_decision.reason}</p>
+              </div>
+            )}
             {[
               ["Keyword match", activeScore.keyword_match_score],
               ["Skills match", activeScore.skills_match_score],
@@ -290,6 +296,20 @@ export function JobMatchPage() {
             <ul className="space-y-2 text-sm">
               {matchReasons(generatedResume, afterScore, beforeScore).map((reason) => <li className="flex gap-2" key={reason}><CheckCircle2 className="mt-0.5 shrink-0 text-rx-green" size={16} />{reason}</li>)}
             </ul>
+            {Boolean(generatedResume.parsed_json.suggested_projects?.length) && (
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">Projects To Build Or Confirm Before Adding</h3>
+                <div className="space-y-2">
+                  {generatedResume.parsed_json.suggested_projects?.slice(0, 4).map((project) => (
+                    <div className="rounded-md border border-rx-line bg-slate-50 p-3 text-sm" key={project.name}>
+                      <p className="font-semibold">{project.name}</p>
+                      <p className="mt-1 text-rx-muted">{project.technologies.join(", ")}</p>
+                      <p className="mt-1 text-slate-700">Add this to the downloadable resume only after you have built it or can truthfully explain it.</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex flex-wrap gap-3">
               <Link to={`/resume-editor/${generatedResume.id}`}><Button><FileText size={16} /> Edit Generated Resume</Button></Link>
               <Link to={`/download/${generatedResume.id}`}><SecondaryButton><Download size={16} /> Download</SecondaryButton></Link>
@@ -352,7 +372,7 @@ function ScoreCard({ label, score }: { label: string; score: number }) {
 function matchReasons(resume: ResumeRecord | null, after: AtsScore | null, before: AtsScore | null) {
   const reasons = [
     "The headline and summary are aligned to the detected job title while preserving the original work history.",
-    "Important supported keywords are moved into summary, skills, experience, and projects instead of being dumped after education.",
+    "Important supported keywords are used naturally in the summary, skills, and experience instead of being dumped after education.",
     "The format remains single-column, ATS-safe, and readable across all 10 resume templates.",
   ];
   if (after && before) reasons.unshift(`ATS score improved from ${before.overall_score} to ${after.overall_score}.`);
