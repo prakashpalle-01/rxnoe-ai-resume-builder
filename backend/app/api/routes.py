@@ -96,7 +96,10 @@ def parse_uploaded_resume(resume_id: int, db: Session = Depends(get_db), user: U
 @router.post("/resumes/{resume_id}/optimize", response_model=ResumeOut)
 def optimize_uploaded_resume(resume_id: int, payload: OptimizeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     resume = _resume_or_404(resume_id, user.id, db)
-    optimized, summary = optimize_resume(resume.parsed_json, payload.instruction, payload.job_description)
+    optimization_source = resume.parsed_json
+    if _is_targeted_generation(payload) and resume.parsed_json.get("optimization_status") == "generated_targeted":
+        optimization_source, _ = parse_resume(resume.raw_text)
+    optimized, summary = optimize_resume(optimization_source, payload.instruction, payload.job_description)
     if _is_targeted_generation(payload):
         analysis = analyze_job_description(payload.job_description or "")
         target_title = analysis.get("job_title") or "Targeted Role"
@@ -112,7 +115,7 @@ def optimize_uploaded_resume(resume_id: int, payload: OptimizeRequest, db: Sessi
         db.add(targeted)
         db.commit()
         db.refresh(targeted)
-        db.add(ResumeVersion(resume_id=targeted.id, resume_json=resume.parsed_json, version_name="Before Optimization", change_summary="Original resume before job-description targeting."))
+        db.add(ResumeVersion(resume_id=targeted.id, resume_json=optimization_source, version_name="Before Optimization", change_summary="Clean source resume before job-description targeting."))
         db.add(ResumeVersion(resume_id=targeted.id, resume_json=optimized, version_name=payload.instruction, change_summary=summary))
         db.commit()
         db.refresh(targeted)

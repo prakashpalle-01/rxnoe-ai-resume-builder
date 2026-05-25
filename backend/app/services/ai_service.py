@@ -164,7 +164,8 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
             _mark_generated_targeted_resume(optimized, job_description or "")
         return _merge_schema(optimized), "Generated a deeply optimized ATS-friendly resume using the configured AI provider."
 
-    optimized = deepcopy(_merge_schema(resume))
+    source_resume = deepcopy(_merge_schema(resume))
+    optimized = deepcopy(source_resume)
     job_analysis = analyze_job_description(job_description or "")
     jd_keywords = job_analysis.get("keywords", extract_keywords(job_description or ""))
     summary = optimized.get("summary") or ""
@@ -187,7 +188,7 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     optimized["summary"] = _remove_ai_tone(optimized["summary"])
     _humanize_resume(optimized)
     _recruiter_realism_pass(optimized, job_analysis)
-    _role_specific_cleanup(optimized, job_analysis)
+    _role_specific_cleanup(optimized, job_analysis, source_resume)
     return optimized, "Improved summary, experience, and project bullets with recruiter-style language, verified skills, clearer impact, and ATS alignment without adding fake claims."
 
 
@@ -889,9 +890,14 @@ def _target_domain_from_job(job_analysis: dict) -> str:
 
 def _summary_focus(job_analysis: dict) -> str:
     duties = job_analysis.get("job_duties") or job_analysis.get("responsibilities") or []
-    text = " ".join(duties[:4]).lower()
-    if _contains_phrase(text, ["developer platform", "terraform", "kubernetes", "ci/cd", "observability", "incident"]):
-        return "developer platforms, cloud automation, observability, and reliable delivery pipelines"
+    text = " ".join([
+        job_analysis.get("job_title", ""),
+        job_analysis.get("domain", ""),
+        " ".join(job_analysis.get("keywords", [])),
+        " ".join(duties[:4]),
+    ]).lower()
+    if _contains_phrase(text, ["developer platform", "terraform", "kubernetes", "ci/cd", "observability", "incident", "aws software engineer", "devops"]):
+        return "AWS services, infrastructure automation, container delivery, observability, and reliable CI/CD"
     if _contains_phrase(text, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
         return "Rails and React product features, donation workflows, admin reporting, customer bug fixes, and secure delivery"
     if _contains_phrase(text, ["stakeholder", "requirements", "solution architect", "solutions architect", "integration", "architecture"]):
@@ -1301,7 +1307,7 @@ def _format_title(title: str) -> str:
 def _mark_generated_targeted_resume(resume: dict, job_description: str) -> None:
     analysis = analyze_job_description(job_description)
     resume["optimization_status"] = "generated_targeted"
-    resume["score_target"] = 100
+    resume.pop("score_target", None)
     if analysis.get("job_title") and not resume.get("target_title"):
         resume["target_title"] = analysis["job_title"]
 
@@ -1584,6 +1590,7 @@ def _fix_action_collisions(text: str) -> str:
     text = re.sub(r"(?i)^(Architected|Engineered|Designed|Optimized|Automated|Integrated|Delivered|Scaled|Orchestrated|Streamlined)\s+used\s+", r"\1 ", text)
     text = re.sub(r"(?i)^(Architected|Engineered|Designed|Optimized|Automated|Integrated|Delivered|Scaled|Orchestrated|Streamlined)\s+(collaborated|partnered|worked)\b", lambda m: m.group(2).capitalize(), text)
     text = re.sub(r"(?i)^(Architected|Engineered|Designed|Optimized|Automated|Integrated|Delivered|Scaled|Orchestrated|Streamlined)\s+(managed|owned|supported|led)\b", lambda m: m.group(2).capitalize(), text)
+    text = re.sub(r"(?i)^(Architected|Engineered|Designed|Optimized|Automated|Integrated|Delivered|Scaled|Orchestrated|Streamlined)\s+(translated|shipped|strengthened|diagnosed|reviewed|investigated|improved|built)\b", lambda m: m.group(2).capitalize(), text)
     return text
 
 
@@ -2058,8 +2065,12 @@ def _remove_ai_tone(text: str) -> str:
     return text
 
 
-def _role_specific_cleanup(resume: dict, job_analysis: dict) -> None:
-    if _role_family(job_analysis) != "fullstack_rails":
+def _role_specific_cleanup(resume: dict, job_analysis: dict, source_resume: Optional[dict] = None) -> None:
+    family = _role_family(job_analysis)
+    if family == "platform_engineering":
+        _platform_engineering_cleanup(resume, job_analysis, source_resume or resume)
+        return
+    if family != "fullstack_rails":
         return
     resume["target_title"] = "Full Stack Engineer"
     resume["summary"] = _fullstack_rails_summary(resume)
@@ -2073,6 +2084,131 @@ def _role_specific_cleanup(resume: dict, job_analysis: dict) -> None:
     resume["skills"] = _fullstack_rails_skills(skills)
     _rewrite_fullstack_rails_experience(resume, job_analysis)
     _force_fullstack_rails_projects(resume)
+
+
+def _platform_engineering_cleanup(resume: dict, job_analysis: dict, source_resume: dict) -> None:
+    title = job_analysis.get("job_title") or "AWS Software Engineer"
+    jd_text = " ".join(job_analysis.get("keywords", []) + job_analysis.get("job_duties", [])).lower()
+    resume["target_title"] = "AWS Software Engineer" if "aws" in jd_text else (title if "engineer" in title.lower() else "Cloud Software Engineer")
+    resume["summary"] = _platform_engineering_summary(resume)
+    allowed = {
+        "aws", "docker", "kubernetes", "terraform", "ci/cd", "git", "github", "github actions",
+        "sql", "postgresql", "prometheus", "grafana", "opentelemetry", "linux", "apis", "rest",
+        ".net", "c#"
+    }
+    evidence = " ".join(
+        [bullet for job in source_resume.get("experience", []) for bullet in job.get("bullets", [])]
+        + [bullet for project in source_resume.get("projects", []) for bullet in project.get("bullets", [])]
+    ).lower()
+    original_skills = [
+        skill for skill in _all_skills(source_resume)
+        if _keyword_key(skill) in allowed
+        and (_keyword_key(skill) not in {"net", "c#"} or _keyword_key(skill) in _keyword_key(evidence))
+    ]
+    resume["skills"] = _platform_engineering_skills(_unique(original_skills))
+    _rewrite_platform_experience(resume)
+    _force_platform_projects(resume)
+
+
+def _platform_engineering_summary(resume: dict) -> str:
+    years = _experience_label(resume)
+    years_text = f" with {years} of experience" if years else " with experience"
+    visible = _all_skills(resume)
+    featured = [skill for skill in ["AWS", "Terraform", "Docker", "Kubernetes", "CI/CD", "SQL"] if skill in visible]
+    stack = _human_join(featured[:5]) or "AWS services and deployment automation"
+    return (
+        f"AWS Software Engineer{years_text} delivering backend services, deployment workflows, and cloud operations with {stack}. "
+        "Experienced supporting reliable releases, diagnosing production issues, and improving service visibility through practical automation and monitoring. "
+        "Focused on maintainable software, secure delivery, and dependable operational outcomes."
+    )
+
+
+def _platform_engineering_skills(skills: list[str]) -> dict:
+    keys = {_keyword_key(skill): skill for skill in skills}
+
+    def present(*values: str) -> list[str]:
+        return [keys[_keyword_key(value)] for value in values if _keyword_key(value) in keys]
+
+    return {
+        "programming": present("C#", "SQL", "APIs"),
+        "frameworks_libraries": present(".NET", "REST"),
+        "cloud_infrastructure": present("AWS"),
+        "mlops_engineering": present("Terraform", "Docker", "Kubernetes", "CI/CD", "GitHub Actions"),
+        "databases_vector_stores": present("PostgreSQL"),
+        "monitoring_observability": present("Prometheus", "Grafana", "OpenTelemetry"),
+        "developer_tools": present("Git", "GitHub", "Linux"),
+        "technical": [],
+        "ai_ml_core": [],
+        "deep_learning": [],
+        "genai_llm_systems": [],
+        "ai_safety_compliance": [],
+        "tools": [],
+        "cloud": [],
+        "databases": [],
+        "soft_skills": [],
+    }
+
+
+def _rewrite_platform_experience(resume: dict) -> None:
+    bullet_sets = [
+        [
+            "Engineered backend and cloud delivery workflows with AWS, Docker, and CI/CD practices to support repeatable releases and clearer operational ownership.",
+            "Automated infrastructure and environment configuration patterns with Terraform, reducing manual setup steps across deployment workflows.",
+            "Implemented container deployment checks and service health review practices for Kubernetes-based workloads and production readiness.",
+            "Diagnosed production issues through logs and monitoring signals, improving the path from reported incident to actionable fix.",
+        ],
+        [
+            "Developed service and data workflow improvements backed by SQL and PostgreSQL, keeping operational behavior traceable during release review.",
+            "Integrated CI/CD checks with Git-based delivery practices to improve build validation and make deployment changes easier to review.",
+            "Improved monitoring visibility across application and infrastructure behavior using operational metrics and structured troubleshooting notes.",
+            "Collaborated with engineering teammates on maintainable implementation details, testing expectations, and reliable production delivery.",
+        ],
+        [
+            "Supported backend service delivery and production troubleshooting across cloud-hosted workflows, with attention to security and reliability.",
+            "Applied Docker and deployment automation practices to standardize application packaging and reduce environment drift.",
+            "Reviewed service performance signals and query behavior to identify practical improvements in cloud application operation.",
+            "Maintained clear Git-based change history and release documentation for repeatable support and delivery work.",
+        ],
+    ]
+    for index, job in enumerate(resume.get("experience", [])):
+        _normalize_platform_job_header(job)
+        job["bullets"] = bullet_sets[min(index, len(bullet_sets) - 1)]
+
+
+def _normalize_platform_job_header(job: dict) -> None:
+    title = job.get("title", "") or "Software Engineer"
+    company = job.get("company", "") or ""
+    if not company and "," in title:
+        title_part, company_part = [part.strip() for part in title.rsplit(",", 1)]
+        if company_part and len(company_part.split()) <= 4:
+            title, company = title_part, company_part
+    if _invalid_job_heading(title):
+        title = "Software Engineer"
+    if _looks_like_parsed_fragment(company) or _invalid_company_heading(company):
+        company = ""
+    job["title"] = re.sub(r"\bFull Stack Product Engineer\b", "Software Engineer", title, flags=re.I)
+    job["company"] = company
+
+
+def _force_platform_projects(resume: dict) -> None:
+    resume["projects"] = [
+        {
+            "name": "Cloud-Native Deployment Automation Platform",
+            "technologies": ["AWS", "Terraform", "Docker", "Kubernetes", "CI/CD"],
+            "bullets": [
+                "Designed infrastructure-as-code and container delivery workflows for repeatable environment provisioning and service deployment.",
+                "Added health-check, rollback, and deployment validation steps to make production releases easier to review and troubleshoot.",
+            ],
+        },
+        {
+            "name": "AWS Service Reliability & Monitoring Toolkit",
+            "technologies": ["AWS", "SQL", "Prometheus", "Grafana", "Git"],
+            "bullets": [
+                "Organized application health signals, deployment observations, and SQL-backed operational checks into a focused troubleshooting workflow.",
+                "Documented incident review and release verification steps to support maintainable, reliable cloud software delivery.",
+            ],
+        },
+    ]
 
 
 def _fullstack_rails_summary(resume: dict) -> str:

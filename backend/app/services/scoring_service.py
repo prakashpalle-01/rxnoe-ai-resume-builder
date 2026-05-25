@@ -37,7 +37,7 @@ def score_resume(resume: dict, raw_text: str, job_description: str) -> dict:
         "recruiter_view": _recruiter_view(resume, matched, missing)
     }
     if _is_generated_targeted(resume):
-        return _perfect_generated_score(result, keywords, missing, resume)
+        return _generated_targeted_score(result, missing)
     return result
 
 
@@ -53,32 +53,11 @@ def _is_generated_targeted(resume: dict) -> bool:
     return resume.get("optimization_status") == "generated_targeted" or resume.get("score_target") == 100
 
 
-def _perfect_generated_score(result: dict, keywords: list[str], unsupported: list[str], resume: dict) -> dict:
-    confirm_items = _confirm_before_adding(unsupported, resume)
-    result.update({
-        "overall_score": 100,
-        "keyword_match_score": 100,
-        "skills_match_score": 100,
-        "experience_match_score": 100,
-        "title_relevance_score": 100,
-        "project_relevance_score": 100,
-        "formatting_score": 100,
-        "readability_score": 100,
-        "recruiter_realism_score": max(result.get("recruiter_realism_score", 90), 92),
-        "missing_keywords": [],
-        "matched_keywords": keywords[:20],
-        "confirm_before_adding": confirm_items,
-        "warnings": [
-            "Generated resume is marked ATS-ready for this job description. Confirm any unproven skills before sending."
-        ],
-        "recruiter_view": [
-            f"Job title clarity: {resume.get('target_title') or 'Target role is visible near the top.'}",
-            f"Top skills visible: {', '.join(keywords[:6]) if keywords else 'Role keywords are aligned.'}",
-            "Recent experience: bullets were rewritten around role-relevant action, tools, and impact.",
-            "Formatting: single-column, ATS-safe structure with clean headings.",
-            "Red flags: no ATS formatting blockers detected in the generated version."
-        ]
-    })
+def _generated_targeted_score(result: dict, unsupported: list[str]) -> dict:
+    note = "Generated resume is formatted and targeted for this role; the score remains evidence-based."
+    if unsupported:
+        note += " Confirm missing skills before adding them."
+    result["warnings"] = [note] + result.get("warnings", [])
     return result
 
 
@@ -135,9 +114,6 @@ def _formatting_score(raw_text: str, resume: dict) -> tuple[int, list[str]]:
     if len(raw_text.split()) > 1100:
         score -= 8
         warnings.append("Your resume may be too long for a fast recruiter scan.")
-    if len(raw_text.split("\n\n")) < 3:
-        score -= 6
-        warnings.append("Your section spacing may be hard to scan.")
     return max(20, score), warnings
 
 
