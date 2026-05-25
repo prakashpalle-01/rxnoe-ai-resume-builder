@@ -867,7 +867,7 @@ def _summary_value_line(job_analysis: dict, skills: list[str]) -> str:
     ]).lower()
     if _contains_phrase(lower, ["solution architect", "solutions architect", "solutions engineer"]):
         return "Brings a practical architecture style that connects stakeholder needs, integration decisions, cloud constraints, and delivery tradeoffs."
-    if _contains_phrase(lower, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
+    if _contains_phrase(lower, ["ruby on rails", "rails", "stripe", "donor", "giving", "donation"]):
         return "Brings a product engineering style focused on maintainable features, secure customer data, thoughtful UX, small pull requests, and production reliability."
     if _contains_phrase(lower, ["healthcare", "claim", "reimbursement", "clinical", "revenue cycle"]):
         return "Brings a practical engineering style to healthcare workflows, balancing clean APIs, reliable data handling, and readable systems that operations teams can trust."
@@ -901,7 +901,7 @@ def _summary_focus(job_analysis: dict) -> str:
     ]).lower()
     if _contains_phrase(text, ["developer platform", "terraform", "kubernetes", "ci/cd", "observability", "incident", "aws software engineer", "devops"]):
         return "AWS services, infrastructure automation, container delivery, observability, and reliable CI/CD"
-    if _contains_phrase(text, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
+    if _contains_phrase(text, ["ruby on rails", "rails", "stripe", "donor", "giving", "donation"]):
         return "Rails and React product features, donation workflows, admin reporting, customer bug fixes, and secure delivery"
     if _contains_phrase(text, ["stakeholder", "requirements", "solution architect", "solutions architect", "integration", "architecture"]):
         return "requirements discovery, system integration, architecture communication, and delivery tradeoffs"
@@ -967,7 +967,7 @@ def _role_family(job_analysis: dict) -> str:
         " ".join(job_analysis.get("keywords", [])),
         " ".join(job_analysis.get("job_duties", []) or job_analysis.get("responsibilities", [])),
     ]).lower()
-    if _contains_phrase(text, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
+    if _contains_phrase(text, ["ruby on rails", "rails", "stripe", "donor", "giving", "donation"]):
         return "fullstack_rails"
     if _contains_phrase(text, ["solutions architect", "solution architect", "solutions engineer", "pre-sales", "presales"]):
         return "solutions_architecture"
@@ -1112,7 +1112,7 @@ def _translated_role_contexts(job_analysis: dict) -> list[str]:
         " ".join(job_analysis.get("keywords", [])),
     ]).lower()
     contexts: list[str] = []
-    if _contains_phrase(text, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
+    if _contains_phrase(text, ["ruby on rails", "rails", "stripe", "donor", "giving", "donation"]):
         contexts.extend(["Rails and React product features", "donor experience workflows", "admin reporting", "customer bug fixes", "secure payment workflows", "pull request review"])
     if _contains_phrase(text, ["solutions architect", "solution architect", "stakeholder", "requirements", "integration"]):
         contexts.extend(["solution discovery workflows", "system integration planning", "technical implementation plans", "cross-functional delivery planning"])
@@ -1377,7 +1377,7 @@ def _suggest_projects_for_gap(jd_keywords: list[str], resume: dict, job_analysis
     domain = job_analysis.get("domain", "")
     text = " ".join(missing + jd_keywords + [title, domain] + duties).lower()
     suggestions = []
-    if _contains_phrase(text, ["ruby on rails", "rails", "react", "stripe", "donor", "giving", "donation"]):
+    if _contains_phrase(text, ["ruby on rails", "rails", "stripe", "donor", "giving", "donation"]):
         suggestions.append({
             "name": "Stripe-Powered Donor Giving Experience",
             "technologies": [keyword for keyword in jd_keywords if keyword.lower() in {"ruby on rails", "rails", "react", "stripe", "stripe apis", "postgresql", "aws"}],
@@ -2076,6 +2076,12 @@ def _role_specific_cleanup(resume: dict, job_analysis: dict, source_resume: Opti
     if family == "platform_engineering":
         _platform_engineering_cleanup(resume, job_analysis, source_resume or resume)
         return
+    if family == "product_frontend":
+        _product_frontend_cleanup(resume, job_analysis, source_resume or resume)
+        return
+    if family == "ai_engineering":
+        _ai_engineering_cleanup(resume, job_analysis, source_resume or resume)
+        return
     if family != "fullstack_rails":
         return
     resume["target_title"] = "Full Stack Engineer"
@@ -2127,6 +2133,139 @@ def _platform_engineering_summary(resume: dict) -> str:
         "Experienced supporting reliable releases, diagnosing production issues, and improving service visibility through practical automation and monitoring. "
         "Focused on maintainable software, secure delivery, and dependable operational outcomes."
     )
+
+
+def _product_frontend_cleanup(resume: dict, job_analysis: dict, source_resume: dict) -> None:
+    resume["target_title"] = job_analysis.get("job_title") or "Frontend Engineer"
+    years = _experience_label(resume)
+    years_text = f" with {years} of experience" if years else " with experience"
+    resume["summary"] = (
+        f"Frontend Engineer{years_text} building responsive, API-connected product experiences with React, TypeScript, and JavaScript. "
+        "Experienced translating workflow requirements into clear UI states, reusable components, validation, and reliable client-side behavior. "
+        "Focused on accessible interfaces, maintainable implementation, and user-facing quality."
+    )
+    supported = _all_skills(source_resume)
+    chosen = _unique([skill for skill in supported if _keyword_key(skill) in {
+        "react", "typescript", "javascript", "html5", "css3", "rest", "apis", "react query",
+        "redux", "jest", "playwright", "git", "github", "figma", "aws"
+    }])
+    resume["skills"] = {
+        "programming": [skill for skill in chosen if _keyword_key(skill) in {"typescript", "javascript", "html5", "css3"}],
+        "frameworks_libraries": [skill for skill in chosen if _keyword_key(skill) in {"react", "react query", "redux", "rest", "apis"}],
+        "developer_tools": [skill for skill in chosen if _keyword_key(skill) in {"git", "github", "figma", "jest", "playwright"}],
+        "cloud_infrastructure": [skill for skill in chosen if _keyword_key(skill) == "aws"],
+        "technical": [],
+        "ai_ml_core": [], "deep_learning": [], "genai_llm_systems": [], "mlops_engineering": [],
+        "databases_vector_stores": [], "monitoring_observability": [], "ai_safety_compliance": [],
+        "tools": [], "cloud": [], "databases": [], "soft_skills": [],
+    }
+    bullet_sets = [
+        [
+            "Designed React-based product workflows with reusable UI components, validation states, and API integration for clearer user interactions.",
+            "Implemented responsive interface behavior and error handling patterns that made key user flows easier to complete and maintain.",
+            "Translated product requirements into testable frontend changes, collaborating on UX details and implementation quality.",
+            "Improved component reuse and screen-state consistency across API-backed experiences, reducing repeated front-end maintenance work.",
+        ],
+        [
+            "Developed user-facing React features connected to backend APIs, with attention to loading, error, and empty-state behavior.",
+            "Applied TypeScript and structured component patterns to improve readability, maintainability, and change confidence.",
+            "Reviewed workflow behavior with teammates and refined UI implementation around usability, validation, and production support.",
+            "Supported release-ready frontend delivery through clear Git changes, debugging, and practical test coverage.",
+        ],
+        [
+            "Built maintainable interface workflows for web applications, connecting user requirements to consistent front-end implementation.",
+            "Investigated UI defects and API interaction issues, improving reliability across customer-facing screens.",
+            "Contributed to clean implementation and release practices for production web features.",
+        ],
+    ]
+    for index, job in enumerate(resume.get("experience", [])):
+        _normalize_platform_job_header(job)
+        job["bullets"] = bullet_sets[min(index, len(bullet_sets) - 1)]
+    resume["projects"] = [
+        {
+            "name": "Customer Workflow Experience Dashboard",
+            "technologies": ["React", "TypeScript", "REST APIs"],
+            "bullets": [
+                "Built reusable interface views for filtering, form validation, loading states, and error recovery across API-backed workflows.",
+                "Structured components and client-side state for a readable, responsive product experience suitable for iterative delivery.",
+            ],
+        },
+        {
+            "name": "Accessible Frontend Component System",
+            "technologies": ["React", "TypeScript", "HTML5", "CSS3"],
+            "bullets": [
+                "Designed reusable form and navigation patterns with accessible structure, predictable interactions, and clear visual hierarchy.",
+                "Documented component behavior and test scenarios to support consistent product implementation and review.",
+            ],
+        },
+    ]
+
+
+def _ai_engineering_cleanup(resume: dict, job_analysis: dict, source_resume: dict) -> None:
+    resume["target_title"] = job_analysis.get("job_title") or "AI Engineer"
+    years = _experience_label(resume)
+    years_text = f" with {years} of experience" if years else " with experience"
+    resume["summary"] = (
+        f"AI Engineer{years_text} developing intelligent document and workflow systems with Python, FastAPI, PostgreSQL, and AWS. "
+        "Experienced connecting retrieval, API services, data validation, and evaluation practices into maintainable applications. "
+        "Focused on useful AI behavior, traceable outputs, and reliable production delivery."
+    )
+    supported = _all_skills(source_resume)
+    chosen = _unique([skill for skill in supported if _keyword_key(skill) in {
+        "python", "fastapi", "postgresql", "aws", "docker", "llm", "rag", "langchain",
+        "vector embeddings", "openai apis", "hugging face", "mlflow", "git", "github"
+    }])
+    resume["skills"] = {
+        "programming": [skill for skill in chosen if _keyword_key(skill) in {"python", "apis"}],
+        "frameworks_libraries": [skill for skill in chosen if _keyword_key(skill) in {"fastapi"}],
+        "ai_ml_core": [skill for skill in chosen if _keyword_key(skill) in {"llm", "rag", "vector embeddings"}],
+        "genai_llm_systems": [skill for skill in chosen if _keyword_key(skill) in {"langchain", "openai apis", "hugging face"}],
+        "databases_vector_stores": [skill for skill in chosen if _keyword_key(skill) == "postgresql"],
+        "cloud_infrastructure": [skill for skill in chosen if _keyword_key(skill) in {"aws"}],
+        "mlops_engineering": [skill for skill in chosen if _keyword_key(skill) in {"docker", "mlflow", "git", "github"}],
+        "technical": [], "deep_learning": [], "monitoring_observability": [], "ai_safety_compliance": [],
+        "developer_tools": [], "tools": [], "cloud": [], "databases": [], "soft_skills": [],
+    }
+    bullet_sets = [
+        [
+            "Designed AI-enabled workflow services with Python and FastAPI, connecting data handling, application logic, and reliable API behavior.",
+            "Developed document-processing and retrieval-oriented flows with attention to traceability, validation, and practical user outcomes.",
+            "Integrated PostgreSQL-backed data operations and cloud delivery practices to support maintainable production workflows.",
+            "Reviewed AI-assisted functionality for clear failure handling, readable outputs, and dependable operational use.",
+        ],
+        [
+            "Built backend services and data workflows that support automation, reporting, and reliable production processing.",
+            "Applied API and database design practices to keep processing behavior testable and operationally understandable.",
+            "Diagnosed workflow issues through logs and reviewable application signals, strengthening production support.",
+            "Collaborated on feature delivery, testing, and implementation decisions across data-driven application work.",
+        ],
+        [
+            "Delivered service-oriented application workflows with attention to reliability, validation, and maintainable implementation.",
+            "Supported production troubleshooting and iterative improvements across API-backed systems.",
+            "Documented implementation behavior and release considerations for technical review.",
+        ],
+    ]
+    for index, job in enumerate(resume.get("experience", [])):
+        _normalize_platform_job_header(job)
+        job["bullets"] = bullet_sets[min(index, len(bullet_sets) - 1)]
+    resume["projects"] = [
+        {
+            "name": "Document Retrieval & Evaluation Workspace",
+            "technologies": ["Python", "FastAPI", "PostgreSQL", "RAG"],
+            "bullets": [
+                "Developed document ingestion, retrieval, and response-review workflows with structured API endpoints and traceable evaluation steps.",
+                "Designed validation and failure-handling paths so retrieval behavior could be examined before production use.",
+            ],
+        },
+        {
+            "name": "AI Workflow Operations Console",
+            "technologies": ["Python", "FastAPI", "AWS", "Docker"],
+            "bullets": [
+                "Built an API-backed operations view for reviewing AI workflow requests, outputs, exceptions, and processing status.",
+                "Documented deployment and quality-check practices to support reliable delivery of AI-assisted application features.",
+            ],
+        },
+    ]
 
 
 def _platform_engineering_skills(skills: list[str]) -> dict:
@@ -2259,11 +2398,11 @@ def _fullstack_experience_bullet(source: str, bullet_index: int, job_index: int,
     lower = source.lower()
     options = []
     if any(term in lower for term in ["react", "frontend", "ui", "user", "dashboard", "component", "form"]):
-        options.append("Built React product flows with validation states, API-backed screens, and clearer user feedback, reducing repeated donor and admin workflow friction by 25%.")
+        options.append("Built React product flows with validation states, API-backed screens, and clearer user feedback for more dependable donor and admin workflows.")
     if any(term in lower for term in ["api", "backend", "service", "fastapi", "spring", "rails", "rest"]):
         options.append("Designed Rails-style API workflows backed by PostgreSQL data checks, improving maintainability across payment, reporting, and operational review paths.")
     if any(term in lower for term in ["bug", "debug", "error", "monitor", "observability", "datadog", "grafana", "prometheus", "production"]):
-        options.append("Investigated production issues through error-monitoring signals and log review, cutting customer bug triage time by 20% and improving release confidence.")
+        options.append("Investigated production issues through error-monitoring signals and log review, improving customer bug triage and release confidence.")
     if any(term in lower for term in ["deploy", "release", "ci/cd", "github", "pull request", "pr", "test"]):
         options.append("Shipped small, descriptive GitHub pull requests with test notes and deployment checks, making code review and one-click release decisions easier.")
     if any(term in lower for term in ["collaborat", "stakeholder", "requirement", "designer", "product", "cross-functional", "agile"]):
