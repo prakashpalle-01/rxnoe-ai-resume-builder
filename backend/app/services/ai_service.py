@@ -5,6 +5,7 @@ from copy import deepcopy
 from typing import Optional
 from openai import OpenAI
 from app.core.config import get_settings
+from .role_benchmarks import infer_resume_benchmark
 from .resume_schema import EMPTY_RESUME
 
 settings = get_settings()
@@ -134,6 +135,7 @@ def analyze_job_description(text: str) -> dict:
     preferred = _extract_preferred_skills(sections, keywords, required)
     responsibilities = _extract_responsibilities(text, sections)
     tools = _extract_tools(keywords)
+    benchmark = infer_resume_benchmark(text)
     return {
         "job_title": title,
         "company": "",
@@ -152,7 +154,8 @@ def analyze_job_description(text: str) -> dict:
             "Clear role alignment in the top third of the resume",
             "Evidence of impact without inflated claims",
             "Recent experience connected to required tools and responsibilities"
-        ]
+        ],
+        "resume_benchmark": benchmark,
     }
 
 
@@ -912,6 +915,9 @@ def _summary_focus(job_analysis: dict) -> str:
         return "user-facing product workflows, reusable frontend systems, and clean API integration"
     if duties:
         return _plain_focus_phrase(duties[0])
+    benchmark = job_analysis.get("resume_benchmark", {})
+    if benchmark.get("resume_focus"):
+        return benchmark["resume_focus"]
     return ""
 
 

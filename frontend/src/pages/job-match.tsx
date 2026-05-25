@@ -22,6 +22,13 @@ type JobAnalysis = {
   seniority_level: string;
   domain: string;
   hidden_recruiter_expectations: string[];
+  resume_benchmark?: {
+    key: string;
+    label: string;
+    source_category: string;
+    core_skills: string[];
+    resume_focus: string;
+  };
 };
 
 export function JobMatchPage() {
@@ -170,6 +177,13 @@ export function JobMatchPage() {
                 <p className="mt-1 text-lg font-bold text-rx-ink">{jobAnalysis.job_title || "Role title not detected"}</p>
                 <p className="mt-1 text-sm text-slate-700">{roleSummary(jobAnalysis)}</p>
               </div>
+              {jobAnalysis.resume_benchmark && (
+                <div className="rounded-md border border-rx-line p-3">
+                  <p className="text-xs font-medium uppercase text-rx-muted">Resume benchmark used</p>
+                  <p className="mt-1 font-semibold">{jobAnalysis.resume_benchmark.label}</p>
+                  <p className="mt-1 text-sm text-slate-700">{jobAnalysis.resume_benchmark.resume_focus}</p>
+                </div>
+              )}
               <div>
                 <h3 className="mb-2 text-sm font-semibold">Skills Needed</h3>
                 <div className="flex flex-wrap gap-2">{neededSkills(jobAnalysis).map((skill) => <Badge key={skill}>{skill}</Badge>)}</div>
