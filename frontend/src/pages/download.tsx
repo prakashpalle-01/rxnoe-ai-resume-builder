@@ -19,7 +19,7 @@ export function DownloadPage() {
 
   async function exportFile(type: "pdf" | "docx") {
     if (!id || !resume) return;
-    const response = await api.get(`/resumes/${id}/export/${type}`, { responseType: "blob" });
+    const response = await api.get(`/resumes/${id}/export/${type}`, { params: { template: templateId }, responseType: "blob" });
     const url = URL.createObjectURL(response.data);
     const link = document.createElement("a");
     link.href = url;
@@ -40,7 +40,7 @@ export function DownloadPage() {
       <section className="flex flex-col justify-between gap-4 rounded-lg border border-rx-line bg-white p-5 shadow-panel lg:flex-row lg:items-center">
         <div>
           <h1 className="text-2xl font-bold tracking-normal">Edit, choose a design, then download</h1>
-          <p className="mt-2 text-sm text-rx-muted">Pick one of 10 ATS-friendly templates. Use the editor for final typing changes before exporting PDF or DOCX.</p>
+          <p className="mt-2 text-sm text-rx-muted">Pick one of 10 ATS-friendly templates. Your selected design and spacing will be used in the downloaded PDF or DOCX.</p>
         </div>
         <div className="flex flex-wrap gap-3">
           <Link to={`/resume-editor/${id}`}><Button><Edit3 size={17} /> Edit Resume</Button></Link>

@@ -2,18 +2,27 @@ from io import BytesIO
 from html import escape
 import re
 from docx import Document
-from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt, RGBColor
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer
 
 
-def build_pdf(resume: dict) -> bytes:
+def build_pdf(resume: dict, template_id: str = "ats-classic") -> bytes:
+    config = _template_config(template_id)
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=LETTER, rightMargin=48, leftMargin=48, topMargin=34, bottomMargin=34)
-    styles = _pdf_styles()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=LETTER,
+        rightMargin=config["margin"],
+        leftMargin=config["margin"],
+        topMargin=config["top_margin"],
+        bottomMargin=config["top_margin"],
+    )
+    styles = _pdf_styles(config)
     story = []
     p = resume.get("personal_info", {})
     story.append(Paragraph(f"<b>{_safe(p.get('name') or 'Resume')}</b>", styles["ResumeName"]))
@@ -36,31 +45,35 @@ def build_pdf(resume: dict) -> bytes:
         _pdf_section(story, styles, "Experience")
         bullet_counter = 0
         for job in resume.get("experience", []):
+            entry = []
             title = job.get("title") or "Role"
             company = job.get("company", "")
             dates = " - ".join(filter(None, [job.get("start_date"), job.get("end_date")]))
             header = f"<b>{_safe(title)}{', ' if company else ''}{_safe(company)}</b>"
             if dates:
                 header += f" <font color='#475569'>{_safe(dates)}</font>"
-            story.append(Paragraph(header, styles["ItemHeader"]))
+            entry.append(Paragraph(header, styles["ItemHeader"]))
             for bullet in job.get("bullets", []):
-                story.append(Paragraph(_bullet_html(bullet, resume, bullet_counter), styles["ResumeBullet"], bulletText="•"))
+                entry.append(Paragraph(_bullet_html(bullet, resume, bullet_counter), styles["ResumeBullet"], bulletText="•"))
                 bullet_counter += 1
-            story.append(Spacer(1, 3))
+            entry.append(Spacer(1, 3))
+            story.append(KeepTogether(entry))
 
     if resume.get("projects"):
         _pdf_section(story, styles, "Projects")
         bullet_counter = 0
         for project in resume.get("projects", []):
+            entry = []
             detail = " | ".join(filter(None, [", ".join(project.get("technologies", [])), project.get("url", "")]))
             header = f"<b>{_safe(project.get('name') or 'Project')}</b>"
             if detail:
                 header += f" <font color='#475569'>{_safe(detail)}</font>"
-            story.append(Paragraph(header, styles["ItemHeader"]))
+            entry.append(Paragraph(header, styles["ItemHeader"]))
             for bullet in project.get("bullets", []):
-                story.append(Paragraph(_bullet_html(bullet, resume, bullet_counter, project=True), styles["ResumeBullet"], bulletText="•"))
+                entry.append(Paragraph(_bullet_html(bullet, resume, bullet_counter, project=True), styles["ResumeBullet"], bulletText="•"))
                 bullet_counter += 1
-            story.append(Spacer(1, 3))
+            entry.append(Spacer(1, 3))
+            story.append(KeepTogether(entry))
 
     _pdf_simple_list(story, styles, "Education", resume.get("education", []))
     _pdf_simple_list(story, styles, "Certifications", resume.get("certifications", []))
@@ -68,38 +81,70 @@ def build_pdf(resume: dict) -> bytes:
     return buffer.getvalue()
 
 
-def build_docx(resume: dict) -> bytes:
+def build_docx(resume: dict, template_id: str = "ats-classic") -> bytes:
+    config = _template_config(template_id)
     doc = Document()
     for section in doc.sections:
-        section.top_margin = Pt(36)
-        section.bottom_margin = Pt(36)
-        section.left_margin = Pt(54)
-        section.right_margin = Pt(54)
+        section.top_margin = Pt(config["top_margin"])
+        section.bottom_margin = Pt(config["top_margin"])
+        section.left_margin = Pt(config["margin"])
+        section.right_margin = Pt(config["margin"])
     styles = doc.styles
-    styles["Normal"].font.name = "Arial"
-    styles["Normal"].font.size = Pt(10)
+    styles["Normal"].font.name = config["docx_font"]
+    styles["Normal"].font.size = Pt(config["docx_size"])
+    styles["Normal"].paragraph_format.space_after = Pt(config["paragraph_spacing"])
+    styles["Normal"].paragraph_format.line_spacing = config["line_spacing"]
+    styles["Title"].font.name = config["docx_font"]
+    styles["Title"].font.size = Pt(config["name_size"])
+    styles["Title"].font.bold = True
+    styles["Title"].font.color.rgb = RGBColor(15, 23, 42)
+    styles["Heading 1"].font.name = config["docx_font"]
+    styles["Heading 1"].font.size = Pt(config["section_size"])
+    styles["Heading 1"].font.bold = True
+    styles["Heading 1"].font.color.rgb = _rgb(config["accent"])
+    styles["Heading 1"].paragraph_format.space_before = Pt(9)
+    styles["Heading 1"].paragraph_format.space_after = Pt(4)
     p = resume.get("personal_info", {})
-    doc.add_heading(p.get("name") or "Resume", level=0)
+    name = doc.add_heading(p.get("name") or "Resume", level=0)
+    name.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if resume.get("target_title"):
         role = doc.add_paragraph()
+        role.alignment = WD_ALIGN_PARAGRAPH.CENTER
         role.add_run(resume.get("target_title")).bold = True
-    doc.add_paragraph(" | ".join(filter(None, [p.get("email"), p.get("phone"), p.get("location"), p.get("linkedin"), p.get("github"), p.get("portfolio")])))
+    contact = doc.add_paragraph(" | ".join(filter(None, [p.get("email"), p.get("phone"), p.get("location"), p.get("linkedin"), p.get("github"), p.get("portfolio")])))
+    contact.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for run in contact.runs:
+        run.font.size = Pt(8.5)
+        run.font.color.rgb = RGBColor(71, 85, 105)
     _docx_section(doc, "Summary", [resume.get("summary", "")])
     skills = [f"{label}: {', '.join(values)}" for label, values in _skill_lines(resume)]
-    _docx_section(doc, "Skills", skills)
+    _docx_section(doc, "Technical Skills", skills)
     if resume.get("experience"):
         doc.add_heading("Experience", level=1)
+    bullet_counter = 0
     for job in resume.get("experience", []):
-        doc.add_paragraph(f"{job.get('title', '')}, {job.get('company', '')} {job.get('start_date', '')} - {job.get('end_date', '')}")
+        item = doc.add_paragraph()
+        item.paragraph_format.space_before = Pt(4)
+        item.add_run(f"{job.get('title', '')}{', ' if job.get('company') else ''}{job.get('company', '')}").bold = True
+        dates = " - ".join(filter(None, [job.get("start_date"), job.get("end_date")]))
+        if dates:
+            item.add_run(f"  {dates}")
         for bullet in job.get("bullets", []):
-            doc.add_paragraph(bullet, style="List Bullet")
+            _docx_bullet(doc, bullet, resume, bullet_counter)
+            bullet_counter += 1
     if resume.get("projects"):
         doc.add_heading("Projects", level=1)
+    bullet_counter = 0
     for project in resume.get("projects", []):
         detail = " | ".join(filter(None, [", ".join(project.get("technologies", [])), project.get("url", "")]))
-        doc.add_paragraph(f"{project.get('name', '')} | {detail}")
+        item = doc.add_paragraph()
+        item.paragraph_format.space_before = Pt(4)
+        item.add_run(project.get("name", "")).bold = True
+        if detail:
+            item.add_run(f" | {detail}")
         for bullet in project.get("bullets", []):
-            doc.add_paragraph(bullet, style="List Bullet")
+            _docx_bullet(doc, bullet, resume, bullet_counter, project=True)
+            bullet_counter += 1
     _docx_section(doc, "Education", resume.get("education", []))
     _docx_section(doc, "Certifications", resume.get("certifications", []))
     buffer = BytesIO()
@@ -107,14 +152,14 @@ def build_docx(resume: dict) -> bytes:
     return buffer.getvalue()
 
 
-def _pdf_styles() -> dict:
+def _pdf_styles(config: dict) -> dict:
     base = getSampleStyleSheet()
     base.add(ParagraphStyle(
         name="ResumeName",
         parent=base["Title"],
-        fontName="Helvetica-Bold",
-        fontSize=18,
-        leading=21,
+        fontName=config["font_bold"],
+        fontSize=config["name_size"],
+        leading=config["name_size"] + 3,
         alignment=TA_CENTER,
         spaceAfter=2,
         textColor=colors.HexColor("#0f172a"),
@@ -122,9 +167,9 @@ def _pdf_styles() -> dict:
     base.add(ParagraphStyle(
         name="ResumeTitle",
         parent=base["Normal"],
-        fontName="Helvetica-Bold",
-        fontSize=10.5,
-        leading=13,
+        fontName=config["font_bold"],
+        fontSize=config["title_size"],
+        leading=config["title_size"] + 2.5,
         alignment=TA_CENTER,
         textColor=colors.HexColor("#334155"),
         spaceAfter=2,
@@ -132,32 +177,31 @@ def _pdf_styles() -> dict:
     base.add(ParagraphStyle(
         name="Contact",
         parent=base["Normal"],
-        fontSize=8.6,
-        leading=11,
+        fontName=config["font"],
+        fontSize=config["contact_size"],
+        leading=config["contact_size"] + 2.2,
         alignment=TA_CENTER,
         textColor=colors.HexColor("#475569"),
     ))
     base.add(ParagraphStyle(
         name="SectionHeading",
         parent=base["Normal"],
-        fontName="Helvetica-Bold",
-        fontSize=9.4,
-        leading=11,
-        textColor=colors.HexColor("#0f172a"),
-        borderColor=colors.HexColor("#cbd5e1"),
+        fontName=config["font_bold"],
+        fontSize=config["section_size"],
+        leading=config["section_size"] + 2,
+        textColor=colors.HexColor(config["accent"]),
         spaceBefore=7,
-        spaceAfter=4,
-        borderWidth=0.25,
-        borderPadding=1,
+        spaceAfter=2,
     ))
-    base.add(ParagraphStyle(name="Body", parent=base["Normal"], fontSize=9.3, leading=12.2, spaceAfter=3))
-    base.add(ParagraphStyle(name="SkillLine", parent=base["Normal"], fontSize=9, leading=11.5, spaceAfter=1.6))
-    base.add(ParagraphStyle(name="ItemHeader", parent=base["Normal"], fontSize=9.4, leading=11.8, spaceBefore=2.5, spaceAfter=1.5))
+    base.add(ParagraphStyle(name="Body", parent=base["Normal"], fontName=config["font"], fontSize=config["body_size"], leading=config["leading"], spaceAfter=config["paragraph_spacing"]))
+    base.add(ParagraphStyle(name="SkillLine", parent=base["Normal"], fontName=config["font"], fontSize=config["skill_size"], leading=config["leading"] - 0.4, spaceAfter=1.8))
+    base.add(ParagraphStyle(name="ItemHeader", parent=base["Normal"], fontName=config["font"], fontSize=config["body_size"], leading=config["leading"], spaceBefore=3.5, spaceAfter=2))
     base.add(ParagraphStyle(
         name="ResumeBullet",
         parent=base["Normal"],
-        fontSize=9,
-        leading=11.4,
+        fontName=config["font"],
+        fontSize=config["bullet_size"],
+        leading=config["leading"],
         leftIndent=13,
         firstLineIndent=-7,
         bulletIndent=2,
@@ -169,6 +213,7 @@ def _pdf_styles() -> dict:
 def _pdf_section(story, styles, title: str) -> None:
     story.append(Spacer(1, 4))
     story.append(Paragraph(f"<b>{_safe(title.upper())}</b>", styles["SectionHeading"]))
+    story.append(HRFlowable(width="100%", thickness=0.45, color=colors.HexColor("#cbd5e1"), spaceBefore=0, spaceAfter=4))
 
 
 def _pdf_simple_list(story, styles, title: str, lines: list[str]) -> None:
@@ -208,9 +253,7 @@ def _bullet_html(value: str, resume: dict, index: int, project: bool = False) ->
     text = str(value or "")
     if "**" in text:
         return _rich_safe(text)
-    phrase = _metric_phrase(text)
-    if not phrase and (index % 2 == 0 or project):
-        phrase = _keyword_phrase(text, resume.get("target_keywords", []))
+    phrase = _highlight_phrase(text, resume, index, project)
     if not phrase:
         return _safe(text)
     location = text.lower().find(phrase.lower())
@@ -221,6 +264,13 @@ def _bullet_html(value: str, resume: dict, index: int, project: bool = False) ->
         f"<b>{_safe(text[location:location + len(phrase)])}</b>",
         _safe(text[location + len(phrase):]),
     ])
+
+
+def _highlight_phrase(text: str, resume: dict, index: int, project: bool = False) -> str:
+    phrase = _metric_phrase(text)
+    if not phrase and (index % 2 == 0 or project):
+        phrase = _keyword_phrase(text, resume.get("target_keywords", []))
+    return phrase
 
 
 def _metric_phrase(text: str) -> str:
@@ -262,6 +312,40 @@ def _docx_section(doc: Document, title: str, lines: list[str]) -> None:
     doc.add_heading(title, level=1)
     for line in lines:
         doc.add_paragraph(line)
+
+
+def _docx_bullet(doc: Document, value: str, resume: dict, index: int, project: bool = False) -> None:
+    text = str(value or "")
+    paragraph = doc.add_paragraph(style="List Bullet")
+    phrase = _highlight_phrase(text, resume, index, project)
+    if not phrase:
+        paragraph.add_run(text)
+        return
+    location = text.lower().find(phrase.lower())
+    paragraph.add_run(text[:location])
+    paragraph.add_run(text[location:location + len(phrase)]).bold = True
+    paragraph.add_run(text[location + len(phrase):])
+
+
+def _template_config(template_id: str) -> dict:
+    templates = {
+        "genai-model": {"font": "Helvetica", "font_bold": "Helvetica-Bold", "docx_font": "Arial", "accent": "#111827", "margin": 43, "top_margin": 34, "name_size": 18, "title_size": 10.5, "section_size": 9.5, "body_size": 9.25, "bullet_size": 9, "skill_size": 9, "contact_size": 8.6, "leading": 11.8, "paragraph_spacing": 3, "docx_size": 9.5, "line_spacing": 1.08},
+        "ats-classic": {"font": "Times-Roman", "font_bold": "Times-Bold", "docx_font": "Times New Roman", "accent": "#0f172a", "margin": 50, "top_margin": 42, "name_size": 19, "title_size": 11, "section_size": 10.5, "body_size": 10, "bullet_size": 9.6, "skill_size": 9.7, "contact_size": 9, "leading": 12.8, "paragraph_spacing": 4, "docx_size": 10, "line_spacing": 1.12},
+        "tech-compact": {"font": "Helvetica", "font_bold": "Helvetica-Bold", "docx_font": "Arial", "accent": "#111827", "margin": 40, "top_margin": 30, "name_size": 17, "title_size": 10, "section_size": 9.2, "body_size": 8.9, "bullet_size": 8.7, "skill_size": 8.7, "contact_size": 8.2, "leading": 10.8, "paragraph_spacing": 2, "docx_size": 9, "line_spacing": 1.0},
+        "executive-clean": {"font": "Helvetica", "font_bold": "Helvetica-Bold", "docx_font": "Arial", "accent": "#1e293b", "margin": 54, "top_margin": 46, "name_size": 20, "title_size": 11, "section_size": 10, "body_size": 9.8, "bullet_size": 9.5, "skill_size": 9.4, "contact_size": 9, "leading": 13.5, "paragraph_spacing": 4, "docx_size": 10, "line_spacing": 1.16},
+        "engineer-dense": {"font": "Helvetica", "font_bold": "Helvetica-Bold", "docx_font": "Arial", "accent": "#111827", "margin": 39, "top_margin": 29, "name_size": 17, "title_size": 10, "section_size": 9.2, "body_size": 8.8, "bullet_size": 8.6, "skill_size": 8.7, "contact_size": 8.2, "leading": 10.6, "paragraph_spacing": 2, "docx_size": 9, "line_spacing": 1.0},
+        "data-modern": {"font": "Helvetica", "font_bold": "Helvetica-Bold", "docx_font": "Arial", "accent": "#0891b2", "margin": 47, "top_margin": 38, "name_size": 18, "title_size": 10.5, "section_size": 9.8, "body_size": 9.3, "bullet_size": 9, "skill_size": 9, "contact_size": 8.5, "leading": 12.1, "paragraph_spacing": 3, "docx_size": 9.5, "line_spacing": 1.08},
+        "cloud-systems": {"font": "Helvetica", "font_bold": "Helvetica-Bold", "docx_font": "Arial", "accent": "#047857", "margin": 47, "top_margin": 38, "name_size": 18, "title_size": 10.5, "section_size": 9.8, "body_size": 9.3, "bullet_size": 9, "skill_size": 9, "contact_size": 8.5, "leading": 12.1, "paragraph_spacing": 3, "docx_size": 9.5, "line_spacing": 1.08},
+        "frontend-sharp": {"font": "Helvetica", "font_bold": "Helvetica-Bold", "docx_font": "Arial", "accent": "#1d4ed8", "margin": 47, "top_margin": 38, "name_size": 18, "title_size": 10.5, "section_size": 9.8, "body_size": 9.3, "bullet_size": 9, "skill_size": 9, "contact_size": 8.5, "leading": 12.1, "paragraph_spacing": 3, "docx_size": 9.5, "line_spacing": 1.08},
+        "minimal-two-page": {"font": "Helvetica", "font_bold": "Helvetica-Bold", "docx_font": "Arial", "accent": "#334155", "margin": 56, "top_margin": 48, "name_size": 20, "title_size": 11, "section_size": 10.5, "body_size": 10.2, "bullet_size": 10, "skill_size": 9.9, "contact_size": 9, "leading": 14.2, "paragraph_spacing": 5, "docx_size": 10.5, "line_spacing": 1.18},
+        "recruiter-scan": {"font": "Helvetica", "font_bold": "Helvetica-Bold", "docx_font": "Arial", "accent": "#1d4ed8", "margin": 48, "top_margin": 38, "name_size": 19, "title_size": 11, "section_size": 10, "body_size": 9.6, "bullet_size": 9.3, "skill_size": 9.2, "contact_size": 8.8, "leading": 12.6, "paragraph_spacing": 3, "docx_size": 10, "line_spacing": 1.1},
+    }
+    return templates.get(template_id, templates["ats-classic"])
+
+
+def _rgb(hex_value: str) -> RGBColor:
+    value = hex_value.lstrip("#")
+    return RGBColor(int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16))
 
 
 def _skill_label(value: str) -> str:

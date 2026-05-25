@@ -1,6 +1,6 @@
 from datetime import date
 import re
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -133,18 +133,18 @@ def resume_versions(resume_id: int, db: Session = Depends(get_db), user: User = 
 
 @router.get("/resumes/{resume_id}/export/pdf")
 @router.post("/resumes/{resume_id}/export/pdf")
-def export_pdf(resume_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def export_pdf(resume_id: int, template: str = Query("ats-classic"), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     resume = _resume_or_404(resume_id, user.id, db)
     filename = _resume_filename(resume.parsed_json, "pdf")
-    return Response(content=build_pdf(resume.parsed_json), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return Response(content=build_pdf(resume.parsed_json, template), media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.get("/resumes/{resume_id}/export/docx")
 @router.post("/resumes/{resume_id}/export/docx")
-def export_docx(resume_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def export_docx(resume_id: int, template: str = Query("ats-classic"), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     resume = _resume_or_404(resume_id, user.id, db)
     filename = _resume_filename(resume.parsed_json, "docx")
-    return Response(content=build_docx(resume.parsed_json), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return Response(content=build_docx(resume.parsed_json, template), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.post("/jobs/analyze")

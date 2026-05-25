@@ -149,7 +149,7 @@ export function ResumeEditorPage() {
   async function exportFile(type: "pdf" | "docx") {
     if (!id || !draftResume) return;
     await save();
-    const response = await api.get(`/resumes/${id}/export/${type}`, { responseType: "blob" });
+    const response = await api.get(`/resumes/${id}/export/${type}`, { params: { template: templateId }, responseType: "blob" });
     const url = URL.createObjectURL(response.data);
     const link = document.createElement("a");
     link.href = url;

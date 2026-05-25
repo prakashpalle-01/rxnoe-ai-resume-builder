@@ -2164,11 +2164,37 @@ def _normalize_fullstack_job_header(job: dict) -> None:
         if len(parts) > 1:
             job["company"] = parts[1].strip()
         return
+    if not company and "," in title and not _looks_like_parsed_fragment(title):
+        title_part, company_part = [part.strip() for part in title.rsplit(",", 1)]
+        if company_part and len(company_part.split()) <= 4:
+            title, company = title_part, company_part
+    if _invalid_job_heading(title):
+        title = "Software Engineer"
+    if _looks_like_parsed_fragment(company) or _invalid_company_heading(company):
+        company = ""
+    if _looks_like_parsed_fragment(job.get("location", "")):
+        job["location"] = ""
     job["title"] = _clean_fullstack_job_title(title)
+    job["company"] = company
 
 
 def _looks_like_parsed_fragment(value: str) -> bool:
-    return bool(re.search(r"(?i)\b(maintainability|clarity|workflow|feature|review|improving)\b", value or "")) and len((value or "").split()) <= 5
+    return (
+        bool(re.search(r"(?i)\b(maintainability|clarity|workflow|feature|review|improving|tradeoffs?|delivery|finance|users?|safer|faster|decisions?)\b", value or ""))
+        and len((value or "").split()) <= 7
+    )
+
+
+def _invalid_job_heading(value: str) -> bool:
+    value = value or ""
+    if re.search(r"(?i)\b(engineer|developer|architect|analyst|founder|manager|specialist)\b", value):
+        return False
+    return value.endswith(".") or _looks_like_parsed_fragment(value)
+
+
+def _invalid_company_heading(value: str) -> bool:
+    value = value or ""
+    return value.endswith(".") or len(value.split()) > 5
 
 
 def _dedupe_fullstack_bullets(bullets: list[str]) -> list[str]:
