@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Download, FileText, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, FileText, Plus, Search, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
@@ -120,6 +120,38 @@ export function JobMatchPage() {
   function chooseTemplate(value: ResumeTemplateId) {
     setTemplateId(value);
     localStorage.setItem("rxnoe_template", value);
+  }
+
+  async function addConfirmedProject(projectName: string) {
+    if (!generatedResume) return;
+    const project = generatedResume.parsed_json.suggested_projects?.find((item) => item.name === projectName);
+    if (!project) return;
+    if (!window.confirm("Add this project only if you have built it or can truthfully explain the work and technologies. Continue?")) return;
+    const { requires_confirmation: _ignored, ...confirmedProject } = project;
+    const confirmedTerms = project.technologies.map((technology) => technology.toLowerCase());
+    const parsedJson = {
+      ...generatedResume.parsed_json,
+      projects: [...generatedResume.parsed_json.projects, confirmedProject],
+      suggested_projects: generatedResume.parsed_json.suggested_projects?.filter((item) => item.name !== projectName) ?? [],
+      unverified_job_keywords: (generatedResume.parsed_json.unverified_job_keywords ?? []).filter((keyword) => {
+        const candidate = keyword.toLowerCase();
+        return !confirmedTerms.some((technology) => technology.includes(candidate) || candidate.includes(technology));
+      })
+    };
+    setBusy("confirm-project");
+    try {
+      const saved = await api.put(`/resumes/${generatedResume.id}`, { parsed_json: parsedJson });
+      const score = await api.post("/ats/score", { resume_id: generatedResume.id, job_description: jobDescription });
+      setGeneratedResume(saved.data);
+      setAfterScore(score.data);
+      setAtsScore(score.data);
+      setResumes([saved.data, ...resumes.filter((resume) => resume.id !== saved.data.id)]);
+      setSuccess(`${projectName} added to your resume after confirmation.`);
+    } catch (err: any) {
+      setError(err.response?.data?.detail ?? "Could not add the confirmed project.");
+    } finally {
+      setBusy("");
+    }
   }
 
   return (
@@ -305,6 +337,9 @@ export function JobMatchPage() {
                       <p className="font-semibold">{project.name}</p>
                       <p className="mt-1 text-rx-muted">{project.technologies.join(", ")}</p>
                       <p className="mt-1 text-slate-700">Add this to the downloadable resume only after you have built it or can truthfully explain it.</p>
+                      <SecondaryButton className="mt-2 min-h-8 px-2 py-1 text-xs" disabled={Boolean(busy)} onClick={() => addConfirmedProject(project.name)}>
+                        <Plus size={14} /> I Built This - Add To Resume
+                      </SecondaryButton>
                     </div>
                   ))}
                 </div>

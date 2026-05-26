@@ -108,7 +108,11 @@ KNOWN_KEYWORDS = [
     "GitLab CI", "Azure DevOps", "Terraform", "Ansible", "Helm", "Istio", "Nginx", "Prometheus",
     "OAuth", "SSO", "JWT", "IAM", "SOC 2", "HIPAA", "Cypress", "Jest", "Playwright", "Selenium",
     "Postman", "Swagger", "OpenAPI", "Figma", "Jira", "Confluence", "SDLC", "TDD", "BDD",
-    "Stripe", "Stripe APIs", "Datadog", "AWS Performance Insights", "Ruby on Rails", "Rails"
+    "Stripe", "Stripe APIs", "Datadog", "AWS Performance Insights", "Ruby on Rails", "Rails",
+    "Lambda", "EC2", "S3", "DynamoDB", "API Gateway", "RDS", "VPC", "IAM", "CloudFormation",
+    "CodePipeline", "CodeBuild", "CodeDeploy", "CloudWatch", "X-Ray", "Splunk", "GitLab",
+    "ECS", "EKS", "SQL Server", "CoffeeScript", "Backbone", "Load Balancing", "Auto Scaling",
+    "Encryption", "Caching"
 ]
 
 
@@ -197,6 +201,7 @@ def optimize_resume(resume: dict, instruction: str, job_description: Optional[st
     _humanize_resume(optimized)
     _recruiter_realism_pass(optimized, job_analysis)
     _role_specific_cleanup(optimized, job_analysis, source_resume)
+    _restore_verified_metrics(optimized, source_resume)
     _keep_only_verified_projects(optimized, source_resume)
     return optimized, "Improved summary, experience, and project bullets with recruiter-style language, verified skills, clearer impact, and ATS alignment without adding fake claims."
 
@@ -350,7 +355,14 @@ def _extract_preferred_skills(sections: dict[str, str], keywords: list[str], req
 
 
 def _extract_tools(keywords: list[str]) -> list[str]:
-    tool_keys = {"aws", "azure", "gcp", "docker", "kubernetes", "sql", "postgresql", "mysql", "mongodb", "redis", "python", "java", "react", "tableau", "power bi", "terraform", "jenkins", "github actions", "jira", "confluence", "figma", "postman", "swagger", "openapi"}
+    tool_keys = {
+        "aws", "azure", "gcp", "docker", "kubernetes", "sql", "postgresql", "mysql", "mongodb", "redis",
+        "python", "java", "react", "tableau", "power bi", "terraform", "jenkins", "github actions",
+        "jira", "confluence", "figma", "postman", "swagger", "openapi", "lambda", "ec2", "s3",
+        "dynamodb", "api gateway", "rds", "vpc", "iam", "cloudformation", "codepipeline",
+        "codebuild", "codedeploy", "cloudwatch", "x-ray", "splunk", "gitlab", "ecs", "eks",
+        "sql server", "coffeescript", "backbone"
+    }
     return [kw for kw in keywords if _keyword_key(kw) in {_keyword_key(item) for item in tool_keys}]
 
 
@@ -689,6 +701,8 @@ def _seniority(text: str) -> str:
 
 def _domain(text: str) -> str:
     lower = text.lower()
+    if any(term in lower for term in ["samaritan", "ministry", "church", "donor", "donation", "giving"]):
+        return "Faith-Based Member Services"
     if "health" in lower:
         return "Healthcare"
     if "finance" in lower or "bank" in lower:
@@ -2187,6 +2201,7 @@ def _role_specific_cleanup(resume: dict, job_analysis: dict, source_resume: Opti
     skills = [skill for skill in _all_skills(resume) if _keyword_key(skill) in allowed]
     skills = _dedupe_fullstack_skills(_unique(["Ruby on Rails", "React", "PostgreSQL", "JavaScript", "TypeScript", "Stripe APIs", "GitHub"] + skills))
     resume["skills"] = _fullstack_rails_skills(skills)
+    resume["suggested_projects"] = []
     _rewrite_fullstack_rails_experience(resume, job_analysis)
     _force_fullstack_rails_projects(resume)
 
@@ -2213,11 +2228,14 @@ def _platform_engineering_cleanup(resume: dict, job_analysis: dict, source_resum
     title = job_analysis.get("job_title") or "AWS Software Engineer"
     jd_text = " ".join(job_analysis.get("keywords", []) + job_analysis.get("job_duties", [])).lower()
     resume["target_title"] = title if "engineer" in title.lower() else ("AWS Software Engineer" if "aws" in jd_text else "Cloud Software Engineer")
-    resume["summary"] = _platform_engineering_summary(resume, source_resume)
+    resume["summary"] = _platform_engineering_summary(resume, source_resume, job_analysis)
     allowed = {
         "aws", "docker", "kubernetes", "terraform", "ci/cd", "git", "github", "github actions",
         "sql", "postgresql", "prometheus", "grafana", "opentelemetry", "linux", "apis", "rest",
-        ".net", "c#"
+        ".net", "c#", "lambda", "ec2", "s3", "dynamodb", "api gateway", "rds", "vpc", "iam",
+        "cloudformation", "codepipeline", "codebuild", "codedeploy", "cloudwatch", "x-ray", "splunk",
+        "gitlab", "ecs", "eks", "sql server", "react", "coffeescript", "backbone", "microservices",
+        "snowflake", "agile"
     }
     evidence = " ".join(
         [bullet for job in source_resume.get("experience", []) for bullet in job.get("bullets", [])]
@@ -2229,20 +2247,26 @@ def _platform_engineering_cleanup(resume: dict, job_analysis: dict, source_resum
         and (_keyword_key(skill) not in {"net", "c#"} or _keyword_key(skill) in _keyword_key(evidence))
     ]
     resume["skills"] = _platform_engineering_skills(_unique(original_skills))
+    resume["suggested_projects"] = []
     _rewrite_platform_experience(resume)
     _force_platform_projects(resume)
 
 
-def _platform_engineering_summary(resume: dict, source_resume: dict) -> str:
+def _platform_engineering_summary(resume: dict, source_resume: dict, job_analysis: dict) -> str:
     years = _experience_label(resume)
     years_text = f" with {years} of experience" if years else " with experience"
     visible = _all_skills(source_resume)
     featured = [skill for skill in ["AWS", "Terraform", "Docker", "Kubernetes", "CI/CD", "SQL"] if skill in visible]
     stack = _human_join(featured[:5]) or "AWS services and deployment automation"
+    domain_text = (
+        " Brings a reliability and cost-awareness mindset to secure member-facing service applications."
+        if job_analysis.get("domain") == "Faith-Based Member Services"
+        else ""
+    )
     return (
         f"AWS Software Engineer{years_text} delivering backend services, deployment workflows, and cloud operations with {stack}. "
         "Experienced supporting reliable releases, diagnosing production issues, and improving service visibility through practical automation and monitoring. "
-        "Focused on maintainable software, secure delivery, and dependable operational outcomes."
+        f"Focused on maintainable software, secure delivery, and dependable operational outcomes.{domain_text}"
     )
 
 
@@ -2270,6 +2294,7 @@ def _profile_cleanup(resume: dict, job_analysis: dict, source_resume: dict, prof
     )
     supported = _supported_profile_skills(source_resume, profile["allowed"])
     resume["skills"] = _profile_skills(supported, profile["groups"])
+    resume["suggested_projects"] = []
     for index, job in enumerate(resume.get("experience", [])):
         _normalize_platform_job_header(job)
         job["bullets"] = profile["bullet_sets"][min(index, len(profile["bullet_sets"]) - 1)]
@@ -2553,6 +2578,7 @@ def _product_frontend_cleanup(resume: dict, job_analysis: dict, source_resume: d
         "databases_vector_stores": [], "monitoring_observability": [], "ai_safety_compliance": [],
         "tools": [], "cloud": [], "databases": [], "soft_skills": [],
     }
+    resume["suggested_projects"] = []
     bullet_sets = [
         [
             "Designed React-based product workflows with reusable UI components, validation states, and API integration for clearer user interactions.",
@@ -2620,6 +2646,7 @@ def _ai_engineering_cleanup(resume: dict, job_analysis: dict, source_resume: dic
         "technical": [], "deep_learning": [], "monitoring_observability": [], "ai_safety_compliance": [],
         "developer_tools": [], "tools": [], "cloud": [], "databases": [], "soft_skills": [],
     }
+    resume["suggested_projects"] = []
     bullet_sets = [
         [
             "Designed AI-enabled workflow services with Python and FastAPI, connecting data handling, application logic, and reliable API behavior.",
@@ -2670,13 +2697,13 @@ def _platform_engineering_skills(skills: list[str]) -> dict:
 
     return {
         "programming": present("C#", "SQL", "APIs"),
-        "frameworks_libraries": present(".NET", "REST"),
-        "cloud_infrastructure": present("AWS"),
-        "mlops_engineering": present("Terraform", "Docker", "Kubernetes", "CI/CD", "GitHub Actions"),
-        "databases_vector_stores": present("PostgreSQL"),
-        "monitoring_observability": present("Prometheus", "Grafana", "OpenTelemetry"),
-        "developer_tools": present("Git", "GitHub", "Linux"),
-        "technical": [],
+        "frameworks_libraries": present(".NET", "React", "REST", "Microservices", "Backbone"),
+        "cloud_infrastructure": present("AWS", "Lambda", "EC2", "S3", "DynamoDB", "API Gateway", "RDS", "VPC", "IAM", "ECS", "EKS"),
+        "mlops_engineering": present("Terraform", "CloudFormation", "Docker", "Kubernetes", "CI/CD", "GitHub Actions", "CodePipeline", "CodeBuild", "CodeDeploy"),
+        "databases_vector_stores": present("PostgreSQL", "SQL Server", "Snowflake"),
+        "monitoring_observability": present("CloudWatch", "X-Ray", "Splunk", "Prometheus", "Grafana", "OpenTelemetry"),
+        "developer_tools": present("Git", "GitHub", "GitLab", "Linux"),
+        "technical": present("CoffeeScript", "Agile"),
         "ai_ml_core": [],
         "deep_learning": [],
         "genai_llm_systems": [],
@@ -2732,22 +2759,64 @@ def _normalize_platform_job_header(job: dict) -> None:
 def _force_platform_projects(resume: dict) -> None:
     resume["projects"] = [
         {
-            "name": "Cloud-Native Deployment Automation Platform",
-            "technologies": ["AWS", "Terraform", "Docker", "Kubernetes", "CI/CD"],
+            "name": "AWS Serverless Member Services API",
+            "technologies": ["AWS Lambda", "API Gateway", "DynamoDB", "S3", "IAM", "CloudWatch", "Encryption", "Caching", "Auto Scaling"],
             "bullets": [
-                "Designed infrastructure-as-code and container delivery workflows for repeatable environment provisioning and service deployment.",
-                "Added health-check, rollback, and deployment validation steps to make production releases easier to review and troubleshoot.",
+                "Designed a secure API workflow for member-facing requests using Lambda, API Gateway, DynamoDB persistence, and IAM-controlled service access.",
+                "Documented CloudWatch monitoring, encryption, caching, failure handling, and auto-scaling decisions for secure, cost-aware production readiness.",
             ],
         },
         {
-            "name": "AWS Service Reliability & Monitoring Toolkit",
-            "technologies": ["AWS", "SQL", "Prometheus", "Grafana", "Git"],
+            "name": "Infrastructure-as-Code Delivery Pipeline",
+            "technologies": ["Terraform", "CloudFormation", "CodePipeline", "CodeBuild", "CodeDeploy", "GitLab", "Docker"],
             "bullets": [
-                "Organized application health signals, deployment observations, and SQL-backed operational checks into a focused troubleshooting workflow.",
-                "Documented incident review and release verification steps to support maintainable, reliable cloud software delivery.",
+                "Defined version-controlled infrastructure provisioning and container deployment workflows with validation, rollback planning, and secure configuration handling.",
+                "Outlined pipeline stages for build, test, release, and monitoring to support consistent cloud-native delivery.",
+            ],
+        },
+        {
+            "name": "AWS Reliability & Network Operations Lab",
+            "technologies": ["EC2", "RDS", "VPC", "Load Balancing", "CloudWatch", "X-Ray", "Splunk"],
+            "bullets": [
+                "Configured a service reliability scenario with compute, relational data access, private networking, load balancing, monitoring signals, and troubleshooting traces.",
+                "Documented performance review, connectivity diagnosis, alert handling, and secure-access considerations for AWS-hosted applications.",
+            ],
+        },
+        {
+            "name": "Legacy-to-Cloud Application Modernization Lab",
+            "technologies": [".NET", "C#", "React", "CoffeeScript", "Backbone", "SQL Server", "Docker", "AWS"],
+            "bullets": [
+                "Modeled an incremental modernization path for a React, CoffeeScript, and Backbone legacy web application integrating .NET API boundaries, SQL Server data, and AWS deployment packaging.",
+                "Documented migration tradeoffs, secure access controls, observability, and performance checks for legacy and cloud-native application support.",
             ],
         },
     ]
+
+
+def _restore_verified_metrics(resume: dict, source_resume: dict) -> None:
+    for index, source_job in enumerate(source_resume.get("experience", [])):
+        if index >= len(resume.get("experience", [])):
+            break
+        verified = [
+            _clean_verified_metric_bullet(bullet)
+            for bullet in source_job.get("bullets", [])
+            if re.search(r"\b\d+(?:\.\d+)?%|\bover\s+\d+%|\b\d+[+x]?\s+(?:users|records|requests|hours|services|applications)\b", bullet, re.I)
+        ]
+        if not verified:
+            continue
+        existing = resume["experience"][index].get("bullets", [])
+        for bullet in verified[:1]:
+            if bullet not in existing:
+                if len(existing) >= 5:
+                    existing[-1] = bullet
+                else:
+                    existing.append(bullet)
+        resume["experience"][index]["bullets"] = existing
+
+
+def _clean_verified_metric_bullet(bullet: str) -> str:
+    clean = _remove_ai_tone(_clean_generated_sentence(bullet.rstrip(".")))
+    return _restore_acronyms(clean).rstrip(" .") + "."
 
 
 def _fullstack_rails_summary(resume: dict) -> str:

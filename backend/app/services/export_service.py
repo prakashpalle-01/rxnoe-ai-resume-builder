@@ -1,6 +1,7 @@
 from io import BytesIO
 from html import escape
 import re
+from typing import Optional
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
@@ -42,9 +43,8 @@ def build_pdf(resume: dict, template_id: str = "ats-classic") -> bytes:
             story.append(Paragraph(f"<b>{_safe(label)}:</b> {_safe(', '.join(values))}", styles["SkillLine"]))
 
     if resume.get("experience"):
-        _pdf_section(story, styles, "Experience")
         bullet_counter = 0
-        for job in resume.get("experience", []):
+        for index, job in enumerate(resume.get("experience", [])):
             entry = []
             title = job.get("title") or "Role"
             company = job.get("company", "")
@@ -57,12 +57,14 @@ def build_pdf(resume: dict, template_id: str = "ats-classic") -> bytes:
                 entry.append(Paragraph(_bullet_html(bullet, resume, bullet_counter), styles["ResumeBullet"], bulletText="•"))
                 bullet_counter += 1
             entry.append(Spacer(1, 3))
-            story.append(KeepTogether(entry))
+            if index == 0:
+                _pdf_section(story, styles, "Experience", entry)
+            else:
+                story.append(KeepTogether(entry))
 
     if resume.get("projects"):
-        _pdf_section(story, styles, "Projects")
         bullet_counter = 0
-        for project in resume.get("projects", []):
+        for index, project in enumerate(resume.get("projects", [])):
             entry = []
             detail = " | ".join(filter(None, [", ".join(project.get("technologies", [])), project.get("url", "")]))
             header = f"<b>{_safe(project.get('name') or 'Project')}</b>"
@@ -73,7 +75,10 @@ def build_pdf(resume: dict, template_id: str = "ats-classic") -> bytes:
                 entry.append(Paragraph(_bullet_html(bullet, resume, bullet_counter, project=True), styles["ResumeBullet"], bulletText="•"))
                 bullet_counter += 1
             entry.append(Spacer(1, 3))
-            story.append(KeepTogether(entry))
+            if index == 0:
+                _pdf_section(story, styles, "Projects", entry)
+            else:
+                story.append(KeepTogether(entry))
 
     _pdf_simple_list(story, styles, "Education", resume.get("education", []))
     _pdf_simple_list(story, styles, "Certifications", resume.get("certifications", []))
@@ -104,6 +109,7 @@ def build_docx(resume: dict, template_id: str = "ats-classic") -> bytes:
     styles["Heading 1"].font.color.rgb = _rgb(config["accent"])
     styles["Heading 1"].paragraph_format.space_before = Pt(9)
     styles["Heading 1"].paragraph_format.space_after = Pt(4)
+    styles["Heading 1"].paragraph_format.keep_with_next = True
     p = resume.get("personal_info", {})
     name = doc.add_heading(p.get("name") or "Resume", level=0)
     name.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -210,18 +216,24 @@ def _pdf_styles(config: dict) -> dict:
     return base
 
 
-def _pdf_section(story, styles, title: str) -> None:
-    story.append(Spacer(1, 4))
-    story.append(Paragraph(f"<b>{_safe(title.upper())}</b>", styles["SectionHeading"]))
-    story.append(HRFlowable(width="100%", thickness=0.45, color=colors.HexColor("#cbd5e1"), spaceBefore=0, spaceAfter=4))
+def _pdf_section(story, styles, title: str, keep_with: Optional[list] = None) -> None:
+    heading = [
+        Spacer(1, 4),
+        Paragraph(f"<b>{_safe(title.upper())}</b>", styles["SectionHeading"]),
+        HRFlowable(width="100%", thickness=0.45, color=colors.HexColor("#cbd5e1"), spaceBefore=0, spaceAfter=4),
+    ]
+    if keep_with:
+        story.append(KeepTogether(heading + keep_with))
+    else:
+        story.extend(heading)
 
 
 def _pdf_simple_list(story, styles, title: str, lines: list[str]) -> None:
     lines = [line for line in lines if line]
     if not lines:
         return
-    _pdf_section(story, styles, title)
-    for line in lines:
+    _pdf_section(story, styles, title, [Paragraph(_safe(lines[0]), styles["Body"])])
+    for line in lines[1:]:
         story.append(Paragraph(_safe(line), styles["Body"]))
 
 

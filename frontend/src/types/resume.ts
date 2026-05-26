@@ -44,6 +44,7 @@ export type ResumeJson = {
     bullets: string[];
   }>;
   target_keywords?: string[];
+  unverified_job_keywords?: string[];
   suggested_projects?: Array<{
     name: string;
     url?: string;

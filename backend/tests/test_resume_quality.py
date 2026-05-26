@@ -1,5 +1,6 @@
 import re
 import unittest
+from copy import deepcopy
 
 from app.services.ai_service import _role_family, analyze_job_description, optimize_resume
 from app.services.export_service import build_pdf
@@ -46,6 +47,12 @@ ROLE_CASES = {
     "dotnet": (".NET Developer SQL REST APIs", "dotnet_engineering"),
     "linux_systems": ("Linux Systems Engineer Terraform Docker AWS", "platform_engineering"),
 }
+
+SAMARITAN_AWS_DESCRIPTION = """Samaritan Ministries is hiring a Remote AWS Software Engineer.
+Build secure, cost-effective member-facing cloud applications using AWS Lambda, EC2, S3, DynamoDB, API Gateway, RDS, VPC, and IAM.
+Automate infrastructure with CloudFormation or Terraform and deliver CI/CD pipelines through CodePipeline, CodeBuild, CodeDeploy, and GitLab.
+Support auto scaling, load balancing, caching, encryption, CloudWatch, X-Ray, and Splunk.
+Maintain .NET and C# services with React, CoffeeScript, Backbone, SQL Server, Docker, Kubernetes, and Git."""
 
 
 class ResumeQualityTests(unittest.TestCase):
@@ -96,6 +103,65 @@ class ResumeQualityTests(unittest.TestCase):
         pdf = build_pdf(result, "recruiter-scan")
         self.assertTrue(pdf.startswith(b"%PDF"))
         self.assertGreater(len(pdf), 1000)
+
+    def test_verified_metrics_are_preserved_in_targeted_resume(self):
+        source = {
+            **BASE_RESUME,
+            "experience": [
+                {
+                    **BASE_RESUME["experience"][0],
+                    "bullets": ["Improved production reliability by over 30% through deployment workflow improvements."],
+                }
+            ],
+        }
+        result, _ = optimize_resume(source, "Generate best-match ATS resume from job description", ROLE_CASES["aws_dotnet"][0])
+        content = _resume_text(result)
+        self.assertIn("over 30%", content)
+
+    def test_confirmed_project_can_improve_score_without_forcing_perfect_match(self):
+        result, _ = optimize_resume(BASE_RESUME, "Generate best-match ATS resume from job description", ROLE_CASES["aws_dotnet"][0])
+        before = score_resume(result, "", ROLE_CASES["aws_dotnet"][0])["overall_score"]
+        confirmed = deepcopy(result)
+        project = confirmed["suggested_projects"][0]
+        confirmed["projects"] = [{key: value for key, value in project.items() if key != "requires_confirmation"}]
+        confirmed["unverified_job_keywords"] = [
+            keyword for keyword in confirmed["unverified_job_keywords"]
+            if not any(keyword.lower() in technology.lower() for technology in project.get("technologies", []))
+        ]
+        after = score_resume(confirmed, "", ROLE_CASES["aws_dotnet"][0])["overall_score"]
+        self.assertGreater(after, before)
+        self.assertLess(after, 100)
+
+    def test_full_confirmed_alignment_can_reach_100_without_claiming_hiring_guarantee(self):
+        result, _ = optimize_resume(BASE_RESUME, "Generate best-match ATS resume from job description", ROLE_CASES["aws_dotnet"][0])
+        confirmed = deepcopy(result)
+        confirmed["projects"] = []
+        for project in confirmed["suggested_projects"]:
+            confirmed["projects"].append({key: value for key, value in project.items() if key != "requires_confirmation"})
+            terms = [technology.lower() for technology in project.get("technologies", [])]
+            confirmed["unverified_job_keywords"] = [
+                keyword for keyword in confirmed["unverified_job_keywords"]
+                if not any(keyword.lower() in technology or technology in keyword.lower() for technology in terms)
+            ]
+        score = score_resume(confirmed, "", ROLE_CASES["aws_dotnet"][0])
+        self.assertEqual(score["overall_score"], 100)
+        self.assertIn("does not guarantee", score["warnings"][0])
+
+    def test_samaritan_aws_flow_covers_domain_and_full_confirmed_requirements(self):
+        result, _ = optimize_resume(BASE_RESUME, "Generate best-match ATS resume from job description", SAMARITAN_AWS_DESCRIPTION)
+        self.assertIn("member-facing service applications", result["summary"])
+        self.assertEqual(result["projects"], [])
+        confirmed = deepcopy(result)
+        for project in confirmed["suggested_projects"]:
+            confirmed["projects"].append({key: value for key, value in project.items() if key != "requires_confirmation"})
+            terms = [technology.lower() for technology in project.get("technologies", [])]
+            confirmed["unverified_job_keywords"] = [
+                keyword for keyword in confirmed["unverified_job_keywords"]
+                if not any(keyword.lower() in technology or technology in keyword.lower() for technology in terms)
+            ]
+        score = score_resume(confirmed, "", SAMARITAN_AWS_DESCRIPTION)
+        self.assertEqual(score["missing_keywords"], [])
+        self.assertEqual(score["overall_score"], 100)
 
 
 def _resume_text(resume: dict) -> str:

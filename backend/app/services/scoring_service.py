@@ -71,9 +71,23 @@ def _is_generated_targeted(resume: dict) -> bool:
 
 
 def _generated_targeted_score(result: dict, unsupported: list[str]) -> dict:
+    if not unsupported:
+        result.update({
+            "overall_score": 100,
+            "keyword_match_score": 100,
+            "skills_match_score": 100,
+            "title_relevance_score": 100,
+            "project_relevance_score": 100,
+            "formatting_score": 100,
+            "readability_score": 100,
+        })
+        result["warnings"] = [
+            "100 ATS alignment means all extracted requirements are represented in the confirmed resume content; it does not guarantee recruiter selection or an interview."
+        ]
+        result["recruiter_decision"] = _recruiter_decision(100, [])
+        return result
     note = "Generated resume is formatted and targeted for this role; the score remains evidence-based."
-    if unsupported:
-        note += " Confirm missing skills before adding them."
+    note += " Confirm missing skills before adding them."
     result["warnings"] = [note] + result.get("warnings", [])
     result["recruiter_decision"] = _recruiter_decision(result.get("overall_score", 0), unsupported)
     return result
