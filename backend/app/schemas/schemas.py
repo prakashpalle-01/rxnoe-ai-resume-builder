@@ -17,6 +17,11 @@ class ResumeUpdate(BaseModel):
     parsed_json: dict
 
 
+class ResumePasteRequest(BaseModel):
+    text: str
+    title: str = "Pasted Resume"
+
+
 class ResumeOut(BaseModel):
     id: int
     title: str

@@ -4,7 +4,7 @@ import { useAppStore } from "../store/app-store";
 
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/upload-resume", label: "Upload Resume", icon: FileUp },
+  { to: "/upload-resume", label: "Add Resume", icon: FileUp },
   { to: "/paste-job-description/latest", label: "Generate Resume", icon: FileText }
 ];
 

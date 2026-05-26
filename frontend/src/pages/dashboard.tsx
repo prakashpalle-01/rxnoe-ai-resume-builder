@@ -32,11 +32,12 @@ export function DashboardPage() {
       <section className="flex flex-col justify-between gap-4 rounded-lg border border-rx-line bg-white p-6 shadow-panel md:flex-row md:items-center">
         <div>
           <Badge tone="green">Focused resume generator</Badge>
-          <h1 className="mt-3 text-3xl font-bold tracking-normal">Upload resume. Paste job description. Generate the strongest ATS-friendly version.</h1>
+          <h1 className="mt-3 text-3xl font-bold tracking-normal">Upload or paste a resume. Target a job or choose a clean download template.</h1>
           <p className="mt-2 max-w-2xl text-rx-muted">RxNoe optimizes for the highest truthful match, recruiter readability, clean formatting, and interview chances.</p>
         </div>
         <div className="flex flex-wrap gap-3">
           <Link to="/upload-resume"><Button><UploadCloud size={18} /> Upload resume</Button></Link>
+          <Link to="/upload-resume?mode=paste"><Button className="bg-white text-rx-blue ring-1 ring-rx-line hover:bg-blue-50"><FileText size={18} /> Paste resume</Button></Link>
           <Link to="/paste-job-description/latest"><Button className="bg-rx-green hover:bg-emerald-700"><Target size={18} /> Generate resume</Button></Link>
         </div>
       </section>

@@ -8,10 +8,10 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.models import ApplicationTracker, AtsScore, CoverLetter, InterviewQuestion, JobDescription, KeywordAnalysis, ParsedResume, ResumeVersion, UploadedResume, User
-from app.schemas.schemas import ApplicationCreate, ApplicationOut, AtsScoreRequest, AuthRequest, CoverLetterRequest, InterviewRequest, JobAnalyzeRequest, JobRankRequest, OptimizeRequest, ResumeOut, ResumeUpdate, ResumeVersionOut, TokenResponse
+from app.schemas.schemas import ApplicationCreate, ApplicationOut, AtsScoreRequest, AuthRequest, CoverLetterRequest, InterviewRequest, JobAnalyzeRequest, JobRankRequest, OptimizeRequest, ResumeOut, ResumePasteRequest, ResumeUpdate, ResumeVersionOut, TokenResponse
 from app.services.ai_service import analyze_job_description, generate_cover_letter, generate_interview_questions, optimize_resume, parse_resume
 from app.services.export_service import build_docx, build_pdf
-from app.services.file_service import extract_text, remove_file, save_upload
+from app.services.file_service import extract_text, remove_file, sanitize_text, save_upload
 from app.services.scoring_service import score_resume
 
 router = APIRouter()
@@ -43,6 +43,34 @@ def upload_resume(file: UploadFile, db: Session = Depends(get_db), user: User = 
     raw_text = extract_text(path)
     resume = UploadedResume(user_id=user.id, title=(file.filename or "Resume").rsplit(".", 1)[0], filename=file.filename or "resume", file_path=path, raw_text=raw_text, parsed_json={})
     db.add(resume)
+    db.commit()
+    db.refresh(resume)
+    return resume
+
+
+@router.post("/resumes/paste", response_model=ResumeOut)
+def paste_resume(payload: ResumePasteRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    raw_text = sanitize_text(payload.text)
+    if len(raw_text) < 40:
+        raise HTTPException(status_code=400, detail="Paste at least 40 characters of resume content.")
+    if len(raw_text.encode("utf-8")) > 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Pasted resume text is too large.")
+    parsed, confidence = parse_resume(raw_text)
+    title = payload.title.strip()[:255] or "Pasted Resume"
+    resume = UploadedResume(
+        user_id=user.id,
+        title=title,
+        filename=f"{_filename_part(title)}.txt",
+        file_path="",
+        raw_text=raw_text,
+        parsed_json=parsed,
+        confidence=confidence,
+    )
+    db.add(resume)
+    db.commit()
+    db.refresh(resume)
+    db.add(ParsedResume(resume_id=resume.id, structured_json=parsed, confidence=confidence))
+    db.add(ResumeVersion(resume_id=resume.id, resume_json=parsed, version_name="Pasted Resume Import", change_summary="Parsed resume text pasted by the user."))
     db.commit()
     db.refresh(resume)
     return resume
