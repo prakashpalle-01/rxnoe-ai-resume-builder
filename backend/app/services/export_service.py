@@ -369,6 +369,7 @@ def _skill_label(value: str) -> str:
         "mlops_engineering": "MLOps & ML Engineering",
         "cloud_infrastructure": "Cloud & Infrastructure",
         "databases_vector_stores": "Databases & Vector Stores",
+        "messaging_streaming": "Messaging & Streaming",
         "programming": "Programming",
         "monitoring_observability": "Monitoring & Observability",
         "ai_safety_compliance": "AI Safety, Privacy & Compliance",

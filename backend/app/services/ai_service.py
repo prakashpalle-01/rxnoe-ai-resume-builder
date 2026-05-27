@@ -409,6 +409,7 @@ def _heuristic_parse(text: str) -> dict:
     header_lines = _header_lines(lines)
     if header_lines:
         resume["personal_info"]["name"] = _guess_name(header_lines)
+        resume["target_title"] = _guess_target_title(header_lines, resume["personal_info"]["name"])
     email = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", text)
     phone = re.search(r"(\+?\d[\d\s().-]{8,}\d)", text)
     linkedin = re.search(r"(linkedin\.com/[^\s]+)", text, re.I)
@@ -524,6 +525,15 @@ def _guess_name(lines: list[str]) -> str:
     return lines[0][:80] if lines else ""
 
 
+def _guess_target_title(lines: list[str], name: str) -> str:
+    for line in lines[:8]:
+        if line == name or "@" in line or re.search(r"\+?\d[\d\s().-]{8,}\d", line):
+            continue
+        if re.search(r"(?i)\b(engineer|developer|architect|analyst|scientist|manager|consultant|specialist)\b", line):
+            return line[:120]
+    return ""
+
+
 def _guess_location(lines: list[str]) -> str:
     for line in lines[:8]:
         city_state = re.search(r"\b[A-Z][a-zA-Z .'-]+,\s*[A-Z]{2}\b", line)
@@ -540,7 +550,7 @@ def _parse_skills(lines: list[str]) -> list[str]:
     parts = re.split(r"[,|;•●\n]", joined)
     skills = []
     for part in parts:
-        part = re.sub(r"^(languages|frameworks|tools|databases|cloud|technical|skills):", "", part.strip(), flags=re.I).strip()
+        part = re.sub(r"^[A-Za-z/& ]{1,30}:\s*", "", part.strip()).strip()
         if 1 <= len(part.split()) <= 4 and len(part) <= 40:
             skills.append(part)
     return _unique(skills)
@@ -551,9 +561,16 @@ def _parse_experience(lines: list[str]) -> list[dict]:
     current = None
     pending_header = []
     date_pattern = r"((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|\d{1,2}/\d{4}|\d{4})\s*[-–—]\s*((Present|Current)|((Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+\d{4})|\d{1,2}/\d{4}|\d{4})"
-    for line in lines:
+    for index, line in enumerate(lines):
         is_bullet = _is_bullet(line)
         date_match = re.search(date_pattern, line, re.I)
+        next_line = lines[index + 1] if index + 1 < len(lines) else ""
+        next_is_date = bool(re.search(date_pattern, next_line, re.I))
+        if current and not date_match and not is_bullet and next_is_date and _looks_like_job_header(line):
+            jobs.append(current)
+            current = None
+            pending_header = [line]
+            continue
         if date_match and not is_bullet:
             if current:
                 jobs.append(current)
@@ -578,6 +595,10 @@ def _parse_experience(lines: list[str]) -> list[dict]:
     return [job for job in jobs if job["title"] or job["company"] or job["bullets"]]
 
 
+def _looks_like_job_header(line: str) -> bool:
+    return "|" in line or bool(re.search(r"(?i)\b(engineer|developer|architect|analyst|scientist|manager|consultant|specialist|founder)\b", line))
+
+
 def _parse_job_header(header: str, date_text: str) -> tuple[str, str, str]:
     clean = header.replace(date_text, "")
     parts = [part.strip(" |,-") for part in re.split(r"\s+\|\s+| - | – | — |\n", clean) if part.strip(" |,-")]
@@ -591,22 +612,24 @@ def _parse_projects(lines: list[str], keywords: list[str]) -> list[dict]:
     projects = []
     current = None
     for line in lines:
-        if _is_bullet(line) and current:
+        if current and (_is_bullet(line) or line.endswith(".")):
             current["bullets"].append(_clean_bullet(line))
-        elif len(line.split()) <= 10:
+        elif len(line.split()) <= 10 and not line.endswith("."):
             if current:
                 projects.append(current)
-            tech = [kw for kw in keywords if kw.lower() in line.lower()]
-            current = {"name": re.sub(r"\s*\|.*$", "", line), "technologies": tech, "bullets": []}
+            current = {"name": re.sub(r"\s*\|.*$", "", line), "technologies": [], "bullets": []}
         elif current:
             current["bullets"].append(_clean_bullet(line))
     if current:
         projects.append(current)
+    for project in projects:
+        project_text = " ".join([project["name"]] + project["bullets"]).lower()
+        project["technologies"] = _unique([keyword for keyword in keywords if keyword.lower() in project_text])
     return projects
 
 
 def _is_bullet(line: str) -> bool:
-    return bool(re.match(r"^[-•●▪▫*]", line.strip())) or bool(re.match(r"^(built|created|developed|improved|designed|implemented|analyzed|managed|automated|delivered|worked|led|owned|supported)\b", line, re.I))
+    return bool(re.match(r"^[-•●▪▫*]", line.strip())) or bool(re.match(r"^(founded|built|created|developed|improved|designed|implemented|integrated|configured|reduced|assisted|contributed|analyzed|managed|automated|delivered|worked|led|owned|supported|collaborated)\b", line, re.I))
 
 
 def _clean_bullet(line: str) -> str:
@@ -829,10 +852,11 @@ def _categorize_skills(skills: list[str], jd_keywords: Optional[list[str]] = Non
         "ai_ml_core": ["LLM", "RAG", "Generative AI", "GenAI", "NLP", "Computer Vision", "AI Agents", "Vector Embeddings", "Recommendation Systems", "Time Series Forecasting", "Machine Learning", "Data Analysis", "A/B Testing"],
         "deep_learning": ["ANN", "CNN", "RNN", "LSTM", "Transformers", "BERT", "GANs"],
         "genai_llm_systems": ["Prompt Engineering", "Semantic Caching", "KV-Cache", "LoRA", "QLoRA", "OpenAI APIs", "LangChain", "Hugging Face"],
-        "frameworks_libraries": ["PyTorch", "TensorFlow", "Keras", "Scikit-Learn", "FastAPI", "Spring Boot", "React", "Node", "GraphQL", "REST"],
+        "frameworks_libraries": ["PyTorch", "TensorFlow", "Keras", "Scikit-Learn", "FastAPI", "Spring Boot", "React", "Node", "GraphQL", "REST", "REST APIs"],
         "mlops_engineering": ["MLflow", "Docker", "Kubernetes", "CI/CD", "Model Monitoring", "Drift Detection", "Git", "GitHub", "GitHub Actions", "GitLab CI", "Azure DevOps", "Jenkins", "Terraform", "Helm", "Istio"],
         "cloud_infrastructure": ["AWS", "Azure", "GCP", "S3", "EC2", "EKS", "ECS", "ECR", "Lambda", "Bedrock", "SageMaker", "BigQuery", "Snowflake"],
         "databases_vector_stores": ["SQL", "PostgreSQL", "MySQL", "NoSQL", "Redis", "Pinecone", "ChromaDB", "FAISS"],
+        "messaging_streaming": ["Kafka", "RabbitMQ", "SQS", "SNS"],
         "programming": ["Python", "Java", "JavaScript", "TypeScript", "R", "PySpark", "APIs", "Microservices"],
         "monitoring_observability": ["Prometheus", "Grafana", "OpenTelemetry", "Sentry"],
         "ai_safety_compliance": ["PII Masking", "Hallucination Detection", "Prompt Injection", "Rate Limiting"],
@@ -1422,6 +1446,11 @@ def _dedupe_related_keywords(values: list[str]) -> list[str]:
     seen = set()
     for value in values:
         key = _keyword_key(value)
+        if key == "rest" and "rest apis" in seen:
+            continue
+        if key == "rest apis" and "rest" in seen:
+            result = [item for item in result if _keyword_key(item) != "rest"]
+            seen.discard("rest")
         if key and key not in seen:
             seen.add(key)
             result.append("APIs" if key == "apis" else value)

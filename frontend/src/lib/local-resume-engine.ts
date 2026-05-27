@@ -314,6 +314,7 @@ function emptySkills(): ResumeJson["skills"] {
     mlops_engineering: [],
     cloud_infrastructure: [],
     databases_vector_stores: [],
+    messaging_streaming: [],
     programming: [],
     monitoring_observability: [],
     ai_safety_compliance: [],

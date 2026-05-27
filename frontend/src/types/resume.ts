@@ -19,6 +19,7 @@ export type ResumeJson = {
     mlops_engineering: string[];
     cloud_infrastructure: string[];
     databases_vector_stores: string[];
+    messaging_streaming: string[];
     programming: string[];
     monitoring_observability: string[];
     ai_safety_compliance: string[];

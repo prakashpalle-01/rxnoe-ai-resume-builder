@@ -2,7 +2,7 @@ import re
 import unittest
 from copy import deepcopy
 
-from app.services.ai_service import _role_family, analyze_job_description, optimize_resume
+from app.services.ai_service import _role_family, analyze_job_description, optimize_resume, parse_resume
 from app.services.export_service import build_pdf
 from app.services.scoring_service import score_resume
 
@@ -53,6 +53,57 @@ Build secure, cost-effective member-facing cloud applications using AWS Lambda, 
 Automate infrastructure with CloudFormation or Terraform and deliver CI/CD pipelines through CodePipeline, CodeBuild, CodeDeploy, and GitLab.
 Support auto scaling, load balancing, caching, encryption, CloudWatch, X-Ray, and Splunk.
 Maintain .NET and C# services with React, CoffeeScript, Backbone, SQL Server, Docker, Kubernetes, and Git."""
+
+PASTED_PYTHON_RESUME = """PRAKASH PALLE
+Senior Python Software Engineer
+Dallas, TX | prakashpalle01@gmail.com | +1 254-237-6034
+LinkedIn: linkedin.com/in/prakashpalle01
+SUMMARY
+Senior Software Engineer with 4+ years of experience building backend systems, cloud-native applications, and automation solutions across healthcare and banking domains.
+TECHNICAL SKILLS
+Languages: Python, Java, SQL, JavaScript, TypeScript
+Backend: FastAPI, REST APIs, Spring Boot, Microservices
+Cloud & DevOps: AWS, Docker, Kubernetes, Terraform, GitHub Actions, CI/CD
+Databases: PostgreSQL, Redis, Kafka
+Monitoring: Prometheus, Grafana
+Tools: Git, Linux
+PROFESSIONAL EXPERIENCE
+Founder & Software Engineer | RxNoe
+2025 - Present
+Founded and built a healthcare workflow platform focused on reimbursement and document-processing operations.
+Developed Python backend services and FastAPI APIs for document-processing and workflow automation.
+Built OCR-based processing pipelines for healthcare claims, invoices, prescriptions, and denial letters.
+Designed cloud infrastructure using AWS, Docker, Kubernetes, and Terraform for scalable deployments.
+Automated deployment and CI/CD workflows improving release consistency and reducing manual deployment effort.
+Led backend engineering, deployment automation, infrastructure setup, and frontend integrations.
+Software Engineer / Data & Automation Engineer | XIFIN
+2023 - Present
+Developed backend workflows and automation solutions supporting enterprise healthcare operational systems.
+Built and maintained REST APIs, PostgreSQL workflows, and backend services improving operational reliability.
+Reduced production troubleshooting effort through monitoring visibility and structured logging.
+Supported production releases and deployment activities across cloud-hosted environments.
+Collaborated with engineering teams to improve backend stability and deployment consistency.
+Automated recurring operational workflows reducing manual support effort.
+Software Engineer | Tata Consultancy Services
+2021 - 2022
+Supported enterprise banking applications and backend systems running in distributed cloud-hosted environments.
+Developed deployment automation workflows and containerized applications using Docker.
+Assisted in debugging backend services, API failures, database bottlenecks, and production incidents.
+Improved deployment consistency through automation and standardized release processes.
+Worked with engineering teams supporting secure banking application delivery.
+Contributed to backend troubleshooting for high-availability enterprise systems.
+PROJECTS
+Healthcare Document Processing Platform
+Built a backend platform for processing healthcare claims, prescriptions, invoices, and operational documents.
+Developed OCR workflows and document-processing pipelines using Python.
+Improved document-processing efficiency through workflow automation.
+Monitoring & Automation Platform
+Developed a monitoring and automation platform for backend systems and operational workflows.
+Integrated logging, metrics tracking, anomaly monitoring, and backend automation workflows.
+Improved operational visibility and troubleshooting efficiency through centralized monitoring solutions.
+EDUCATION
+Master of Science in Computer Science
+University of North Texas | 2024"""
 
 
 class ResumeQualityTests(unittest.TestCase):
@@ -162,6 +213,31 @@ class ResumeQualityTests(unittest.TestCase):
         score = score_resume(confirmed, "", SAMARITAN_AWS_DESCRIPTION)
         self.assertEqual(score["missing_keywords"], [])
         self.assertEqual(score["overall_score"], 100)
+
+    def test_pasted_resume_preserves_role_boundaries_and_project_names(self):
+        parsed, _ = parse_resume(PASTED_PYTHON_RESUME)
+        self.assertEqual(parsed["target_title"], "Senior Python Software Engineer")
+        self.assertEqual(
+            [(job["title"], job["company"]) for job in parsed["experience"]],
+            [
+                ("Founder & Software Engineer", "RxNoe"),
+                ("Software Engineer / Data & Automation Engineer", "XIFIN"),
+                ("Software Engineer", "Tata Consultancy Services"),
+            ],
+        )
+        self.assertEqual(
+            [project["name"] for project in parsed["projects"]],
+            ["Healthcare Document Processing Platform", "Monitoring & Automation Platform"],
+        )
+        self.assertIn("REST APIs", parsed["skills"]["frameworks_libraries"])
+        self.assertNotIn("REST", parsed["skills"]["frameworks_libraries"])
+        self.assertIn("Kafka", parsed["skills"]["messaging_streaming"])
+        self.assertNotIn("REST APIs", parsed["skills"]["technical"])
+        self.assertNotIn("Kafka", parsed["skills"]["technical"])
+        self.assertIn("Python", parsed["projects"][0]["technologies"])
+        self.assertNotIn("Integrated logging, metrics tracking, anomaly monitoring, and backend automation workflows.", [project["name"] for project in parsed["projects"]])
+        pdf = build_pdf(parsed, "ats-classic")
+        self.assertTrue(pdf.startswith(b"%PDF"))
 
 
 def _resume_text(resume: dict) -> str:
